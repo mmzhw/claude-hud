@@ -207,6 +207,7 @@ Simplified and Traditional Chinese HUD labels are available as explicit opt-ins.
 | `display.showConfigCounts` | boolean | false | Show CLAUDE.md, rules, MCPs, hooks counts |
 | `display.showCost` | boolean | false | Show session cost using Claude Code's native `cost.total_cost_usd` when available, with a local estimate fallback for direct Anthropic sessions |
 | `display.showRoutedCost` | boolean | false | Also show cost for routed providers (Bedrock/Vertex), which `showCost` hides by default. Requires `showCost` too. Uses the native `cost.total_cost_usd` when positive (`Cost`), otherwise the token estimate (`Est.`) |
+| `display.showRmbCost` | boolean | false | Show a DeepSeek RMB cost line (session/today/month totals with peak/off-peak pricing and per-model breakdown). Suppresses the `showCost` USD segment when enabled. Pricing table lives in `src/deepseek-pricing.ts`; add an entry there to support other models |
 | `display.showOutputStyle` | boolean | false | Show the active Claude Code `outputStyle` from settings files as `style: <name>` |
 | `display.showDuration` | boolean | false | Show session duration `⏱️ 5m` |
 | `display.showSpeed` | boolean | false | Show output token speed `out: 42.1 tok/s` |

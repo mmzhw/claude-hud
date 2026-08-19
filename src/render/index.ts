@@ -19,6 +19,8 @@ import {
   renderCompactionsLine,
   renderSessionTimeLine,
 } from './lines/index.js';
+import { updateUsageStats } from '../usage-stats.js';
+import { renderRmbCostLine } from './lines/rmb-cost.js';
 import { dim, RESET } from './colors.js';
 import { getTerminalWidth, UNKNOWN_TERMINAL_WIDTH } from '../utils/terminal.js';
 import { codePointCellWidth, isCjkAmbiguousWide } from './width.js';
@@ -646,6 +648,12 @@ export function render(ctx: RenderContext): void {
     }
 
     lines.push(...activityLines);
+  }
+
+  // DeepSeek 人民币费用行（opt-in）：增量扫描转录后追加到输出末尾
+  if (ctx.config?.display?.showRmbCost === true) {
+    const stats = updateUsageStats({ sessionId: ctx.stdin.session_id });
+    lines.push(renderRmbCostLine(stats));
   }
 
   const physicalLines = lines.flatMap(line => line.split('\n'));

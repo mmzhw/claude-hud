@@ -4375,3 +4375,53 @@ test('render expanded layout still stacks a right-aligned group that does not fi
   assert.equal(combined, undefined, 'narrow terminals should stack instead of combining');
   assert.ok(contextLine, 'expected a standalone context line');
 });
+
+test('showRmbCost 开启时 expanded/compact 布局末尾追加费用行', async () => {
+  // updateUsageStats 的默认 projectsRoot/stateFile 跟随 CLAUDE_CONFIG_DIR：
+  // 指向临时目录，放一条 deepseek-v4-pro 转录记录，render 时增量扫描出费用行。
+  const tmp = await mkdtemp(path.join(tmpdir(), 'hud-render-'));
+  const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    const projectsDir = path.join(tmp, '.claude', 'projects', 'proj-a');
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(
+      path.join(projectsDir, 'sess-1.jsonl'),
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          id: 'm1',
+          model: 'deepseek-v4-pro',
+          usage: { input_tokens: 1000000, cache_read_input_tokens: 0, output_tokens: 1000000, cache_creation_input_tokens: 0 },
+        },
+        timestamp: '2026-08-19T05:00:00.000Z',
+        sessionId: 'sess-1',
+      }) + '\n',
+      'utf8',
+    );
+    process.env.CLAUDE_CONFIG_DIR = path.join(tmp, '.claude');
+
+    // 注意：render 里的 updateUsageStats 用"当前真实时间"算 today/month（无注入点），
+    // 记录落在本月时费用非零、落不到（更晚的月份）时费用为零——断言放宽为
+    // 末行匹配 /^⚡今¥/（费用行出现即可），不锁具体金额。
+    const ctx = baseContext();
+    ctx.stdin = { ...ctx.stdin, session_id: 'sess-1' };
+    ctx.config.display.showRmbCost = true;
+
+    // expanded
+    ctx.config.lineLayout = 'expanded';
+    const out1 = withTerminal(200, () => captureRenderLines(ctx));
+    assert.match(out1[out1.length - 1], /^⚡今¥/, `expanded 布局末行应为费用行，got: ${out1[out1.length - 1]}`);
+
+    // compact（复用同一 ctx，第二次触发走状态文件累计，费用行仍应追加）
+    ctx.config.lineLayout = 'compact';
+    const out2 = withTerminal(200, () => captureRenderLines(ctx));
+    assert.match(out2[out2.length - 1], /^⚡今¥/, `compact 布局末行应为费用行，got: ${out2[out2.length - 1]}`);
+  } finally {
+    if (oldConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = oldConfigDir;
+    }
+    await rm(tmp, { recursive: true, force: true });
+  }
+});

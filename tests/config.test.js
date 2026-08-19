@@ -1300,3 +1300,17 @@ test('mergeConfig falls back to empty rightAlign when value is not an array', ()
   assert.deepEqual(mergeConfig({ display: { rightAlign: 'context' } }).display.rightAlign, []);
   assert.deepEqual(mergeConfig({ display: { rightAlign: null } }).display.rightAlign, []);
 });
+
+test('DEFAULT_CONFIG.display.showRmbCost defaults to false', () => {
+  assert.equal(DEFAULT_CONFIG.display.showRmbCost, false);
+});
+
+test('mergeConfig carries display.showRmbCost true', () => {
+  const config = mergeConfig({ display: { showRmbCost: true } });
+  assert.equal(config.display.showRmbCost, true);
+});
+
+test('mergeConfig falls back when showRmbCost is not boolean', () => {
+  const config = mergeConfig({ display: { showRmbCost: 'yes' } });
+  assert.equal(config.display.showRmbCost, false);
+});

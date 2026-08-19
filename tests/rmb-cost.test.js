@@ -1,0 +1,67 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { renderRmbCostLine } from '../dist/render/lines/rmb-cost.js';
+
+const bucket = (costPeak, costOff) => ({ miss: 0, hit: 0, out: 0, costPeak, costOff });
+
+function stats(overrides = {}) {
+  return {
+    today: bucket(3.5, 0),
+    month: bucket(145.26, 0),
+    session: bucket(7.52, 0),
+    todayPerModel: {
+      'deepseek-v4-pro': bucket(3.0, 0),
+      'deepseek-v4-flash': bucket(0.5, 0),
+    },
+    monthPerModel: {},
+    sessionPerModel: {},
+    sessionId: 'sess-1',
+    ...overrides,
+  };
+}
+
+test('双模型拆分 + 峰谷 + 会话完整格式', () => {
+  assert.equal(
+    renderRmbCostLine(stats()),
+    '⚡今¥3.50(pro¥3.00/flash¥0.50) 峰¥3.50 月¥145.26 会话¥7.52',
+  );
+});
+
+test('单模型时括号只含该模型', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ todayPerModel: { 'deepseek-v4-pro': bucket(3.5, 0) } })),
+    '⚡今¥3.50(pro¥3.50) 峰¥3.50 月¥145.26 会话¥7.52',
+  );
+});
+
+test('无按模型数据时省略括号', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ todayPerModel: {} })),
+    '⚡今¥3.50 峰¥3.50 月¥145.26 会话¥7.52',
+  );
+});
+
+test('峰谷为零时省略峰/谷段', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ today: bucket(0, 0), todayPerModel: {} })),
+    '⚡今¥0.00 月¥145.26 会话¥7.52',
+  );
+});
+
+test('无会话 id 时省略会话段', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ sessionId: null })),
+    '⚡今¥3.50(pro¥3.00/flash¥0.50) 峰¥3.50 月¥145.26',
+  );
+});
+
+test('统计异常显示占位', () => {
+  assert.equal(renderRmbCostLine(null), '⚡费用统计异常');
+});
+
+test('空闲时段费用显示谷段', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ today: bucket(0, 2.5), todayPerModel: { 'deepseek-v4-pro': bucket(0, 2.5) } })),
+    '⚡今¥2.50(pro¥2.50) 谷¥2.50 月¥145.26 会话¥7.52',
+  );
+});
