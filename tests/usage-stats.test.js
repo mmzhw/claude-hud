@@ -1,0 +1,254 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { updateUsageStats } from '../dist/usage-stats.js';
+
+/** 构造一条 assistant 转录行（字段口径与 Claude Code 转录一致） */
+function assistantLine({ id, model = 'deepseek-v4-pro', ts, miss = 0, hit = 0, out = 0, sessionId }) {
+  return JSON.stringify({
+    type: 'assistant',
+    message: {
+      id,
+      model,
+      usage: {
+        input_tokens: miss,
+        cache_read_input_tokens: hit,
+        output_tokens: out,
+        cache_creation_input_tokens: 0,
+      },
+    },
+    timestamp: ts,
+    sessionId,
+  }) + '\n';
+}
+
+/** 建临时 projects 目录结构，返回 { dir, root, stateFile } */
+async function makeFixture() {
+  const dir = await mkdtemp(path.join(tmpdir(), 'hud-usage-'));
+  const root = path.join(dir, 'projects');
+  const stateFile = path.join(dir, 'state', '.usage-state.json');
+  await mkdir(root, { recursive: true });
+  return { dir, root, stateFile };
+}
+
+// 基准"当前时间"：2026-08-19 北京 14:00（当天空闲时段）
+const NOW = '2026-08-19T06:00:00.000Z';
+
+test('单条记录计入今日/本月/会话三层累计并维护 perModel 拆分', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      // 北京 13:00 空闲：pro miss 4.5 + out 13.5 = 18 元
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.today.costOff, 18);
+    assert.equal(result.today.costPeak, 0);
+    assert.equal(result.month.costOff, 18);
+    assert.equal(result.session.costOff, 18);
+    assert.equal(result.todayPerModel['deepseek-v4-pro'].costOff, 18);
+
+    // 再次触发：偏移推进，不重复计费
+    const again = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(again);
+    assert.equal(again.today.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('同 message.id 的流式分片按最完整分片计费（跨触发扣回）', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 第一次触发：只有中间分片（output=0）
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000, out: 0, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(first);
+    const midCost = first.session.costOff; // 1000 * 4.5 / 1e6 = 0.0045
+
+    // 追加完整分片（output=200）后再次触发：扣回旧分片、计入完整分片
+    await appendFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 2_000, out: 200, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(second);
+    const fullCost = (2_000 * 4.5 + 200 * 13.5) / 1e6; // 0.0117
+    assert.ok(Math.abs(second.session.costOff - fullCost) < 1e-12);
+    assert.ok(Math.abs(second.today.costOff - fullCost) < 1e-12);
+    assert.ok(second.session.costOff > midCost);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('高峰时段记录计入 costPeak', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      // 北京 09:30 高峰：miss 1M = 9 元
+      assistantLine({ id: 'm1', ts: '2026-08-19T01:30:00.000Z', miss: 1_000_000, out: 0, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.today.costPeak, 9);
+    assert.equal(result.today.costOff, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('会话切换只重置会话累计，今日/本月保留', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(first);
+    assert.equal(first.session.costOff, 18);
+
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-2', now: NOW });
+    assert.ok(second);
+    assert.equal(second.session.costOff, 0);
+    assert.equal(second.today.costOff, 18);
+    assert.equal(second.month.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('跨天清零今日、保留本月', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-19T06:00:00.000Z' });
+    assert.ok(first);
+    assert.equal(first.today.costOff, 18);
+
+    // 8-20 同月新记录
+    await appendFile(file, assistantLine({ id: 'm2', ts: '2026-08-20T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-20T06:00:00.000Z' });
+    assert.ok(second);
+    assert.equal(second.today.costOff, 18); // 只有 8-20 的记录
+    assert.equal(second.month.costOff, 36);
+    assert.equal(second.session.costOff, 36);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('计价生效日期前的记录不计入', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-16T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.today.costOff, 0);
+    assert.equal(result.month.costOff, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('非本月记录不计入', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-07-30T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.month.costOff, 0);
+    assert.equal(result.today.costOff, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('子代理转录按目录归属父会话', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a', 'sess-1', 'subagents'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1', 'subagents', 'agent-x.jsonl'),
+      // flash 空闲：miss 1.5 + out 4.5 = 6 元
+      assistantLine({ id: 'm1', model: 'deepseek-v4-flash', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'agent-x' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.session.costOff, 6);
+    assert.equal(result.today.costOff, 6);
+    assert.equal(result.todayPerModel['deepseek-v4-flash'].costOff, 6);
+
+    // 其他会话视角：会话累计为 0，本月保留
+    const other = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'other', now: NOW });
+    assert.ok(other);
+    assert.equal(other.session.costOff, 0);
+    assert.equal(other.month.costOff, 6);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('无计价模型的记录跳过不计费', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', model: 'some-other-model', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.session.costOff, 0);
+    assert.deepEqual(Object.keys(result.todayPerModel), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('旧版本状态（无 stateV）整体重建后按转录重算', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    // 伪造的旧格式状态：同月同日、pricingEra 正确，但累计是假值且无 stateV
+    await mkdir(path.dirname(stateFile), { recursive: true });
+    await writeFile(stateFile, JSON.stringify({
+      month: '2026-08',
+      date: '2026-08-19',
+      pricingEra: '2026-08-17',
+      sessionId: 'sess-1',
+      totals: { miss: 999, hit: 0, out: 0, costPeak: 123, costOff: 456 },
+      files: {},
+      msgs: {},
+    }));
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    // 伪造值被整体重建覆盖，按转录重算为 18 元
+    assert.equal(result.today.costOff, 18);
+    assert.equal(result.month.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
