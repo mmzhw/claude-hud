@@ -4,6 +4,10 @@ import type { AuthInfo } from './auth.js';
 
 export interface StdinData {
   transcript_path?: string;
+  // 会话 id（Claude Code 通过 statusline stdin 提供）。人民币费用统计用它把
+  // 子代理转录归属到父会话；被 usage-stats.ts 与 render/index.ts 使用。
+  // 注意：readStdin 将整个 stdin JSON 直接 cast 为本接口，无需额外解析逻辑。
+  session_id?: string;
   cwd?: string;
   workspace?: {
     current_dir?: string;

@@ -233,6 +233,10 @@ export interface HudConfig {
     // real 5-minute or 1-hour cache write to follow.
     promptCacheTtlSeconds: number;
     showSessionTokens: boolean;
+    // DeepSeek 人民币费用行（opt-in，个人 fork 扩展）：会话/今日/本月花费，
+    // 峰谷分时计价 + 按模型拆分。开启时自动抑制 showCost 美元段。
+    // 价格表见 src/deepseek-pricing.ts；换模型时在表中加条目即可。
+    showRmbCost: boolean;
     showOutputStyle: boolean;
     showSessionStartDate: boolean;
     showLastResponseAt: boolean;
@@ -347,6 +351,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     showPromptCache: false,
     promptCacheTtlSeconds: 300,
     showSessionTokens: false,
+    showRmbCost: false,
     showOutputStyle: false,
     showSessionStartDate: false,
     showLastResponseAt: false,
@@ -881,6 +886,9 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     showSessionTokens: typeof migrated.display?.showSessionTokens === 'boolean'
       ? migrated.display.showSessionTokens
       : DEFAULT_CONFIG.display.showSessionTokens,
+    showRmbCost: typeof migrated.display?.showRmbCost === 'boolean'
+      ? migrated.display.showRmbCost
+      : DEFAULT_CONFIG.display.showRmbCost,
     showOutputStyle: typeof migrated.display?.showOutputStyle === 'boolean'
       ? migrated.display.showOutputStyle
       : DEFAULT_CONFIG.display.showOutputStyle,

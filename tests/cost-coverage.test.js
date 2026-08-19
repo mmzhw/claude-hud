@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { estimateSessionCost, resolveSessionCost, formatUsd } from '../dist/cost.js';
+import { renderCostEstimate } from '../dist/render/lines/cost.js';
 
 test('estimateSessionCost returns null when sessionTokens is undefined', () => {
   assert.equal(estimateSessionCost({ model: { display_name: 'Claude Opus 4' } }, undefined), null);
@@ -308,4 +309,22 @@ test('estimateSessionCost handles model being undefined', () => {
   const tokens = { inputTokens: 1000, outputTokens: 500, cacheCreationTokens: 0, cacheReadTokens: 0 };
   const result = estimateSessionCost({}, tokens);
   assert.equal(result, null);
+});
+
+test('showRmbCost 开启时抑制美元 cost 段', () => {
+  const ctx = {
+    config: { display: { showCost: true, showRmbCost: true } },
+    stdin: { model: { display_name: 'deepseek-v4-pro' }, cost: { total_cost_usd: 0.5 } },
+    transcript: { sessionTokens: undefined },
+  };
+  assert.equal(renderCostEstimate(ctx), null);
+});
+
+test('showRmbCost 关闭时美元 cost 段正常渲染', () => {
+  const ctx = {
+    config: { display: { showCost: true, showRmbCost: false } },
+    stdin: { model: { display_name: 'Opus' }, cost: { total_cost_usd: 0.5 } },
+    transcript: { sessionTokens: undefined },
+  };
+  assert.ok(typeof renderCostEstimate(ctx) === 'string');
 });
