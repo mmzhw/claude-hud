@@ -33,7 +33,7 @@ async function makeFixture() {
   return { dir, root, stateFile };
 }
 
-// 基准"当前时间"：2026-08-19 北京 14:00（当天空闲时段）
+// 基准"当前时间"：2026-08-19 北京 14:00
 const NOW = '2026-08-19T06:00:00.000Z';
 
 test('单条记录计入今日/本月/会话三层累计并维护 perModel 拆分', async () => {
@@ -248,6 +248,36 @@ test('旧版本状态（无 stateV）整体重建后按转录重算', async () =
     // 伪造值被整体重建覆盖，按转录重算为 18 元
     assert.equal(result.today.costOff, 18);
     assert.equal(result.month.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('新月滚动整体重建：上月状态被全量重读覆盖', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    // 伪造的上月状态：stateV/pricingEra 均正确，但 month 为上月 → 触发新月整体重建，偏移置空重读本月记录
+    await mkdir(path.dirname(stateFile), { recursive: true });
+    await writeFile(stateFile, JSON.stringify({
+      stateV: 2,
+      month: '2026-07',
+      date: '2026-07-31',
+      pricingEra: '2026-08-17',
+      sessionId: 'sess-1',
+      totals: { miss: 999, hit: 0, out: 0, costPeak: 123, costOff: 456 },
+      files: {},
+      msgs: {},
+    }));
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    // 伪造的上月累计被整体重建覆盖，按本月转录重算为 18 元
+    assert.equal(result.month.costOff, 18);
+    assert.equal(result.today.costOff, 18);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
