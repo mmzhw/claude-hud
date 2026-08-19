@@ -101,7 +101,7 @@ src/
         ├── environment.ts   # Config counts (opt-in)
         ├── advisor.ts       # Advisor model label (opt-in)
         ├── cost.ts          # Session cost display
-        ├── rmb-cost.ts     # DeepSeek 人民币费用行渲染（opt-in, showRmbCost）
+        ├── rmb-cost.ts      # DeepSeek 人民币费用行渲染（opt-in, showRmbCost）
         ├── prompt-cache.ts  # Prompt cache countdown
         ├── memory.ts        # Memory usage display
         ├── session-time.ts  # Session duration / timestamps
