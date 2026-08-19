@@ -75,9 +75,11 @@ export function isPeak(utcTimestamp: string): boolean {
   return PEAK_WINDOWS_BEIJING.some(([start, end]) => hour >= start && hour < end);
 }
 
-/** UTC 时间戳对应的北京日期 YYYY-MM-DD（跨时区按天分组用） */
+/** UTC 时间戳对应的北京日期 YYYY-MM-DD（跨时区按天分组用）；非法时间戳返回空串（调用方按日期过滤自然跳过） */
 export function beijingDate(utcTimestamp: string): string {
-  return new Date(new Date(utcTimestamp).getTime() + 8 * 3600_000)
+  const d = new Date(utcTimestamp);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() + 8 * 3600_000)
     .toISOString()
     .slice(0, 10);
 }

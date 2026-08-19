@@ -68,6 +68,8 @@ src/
 ├── config.ts            # Load/validate user config
 ├── git.ts               # Git status (branch, dirty, ahead/behind)
 ├── cost.ts              # Cost estimation (native stdin cost preferred)
+├── deepseek-pricing.ts  # DeepSeek 峰谷计价纯函数（人民币，个人 fork 扩展）
+├── usage-stats.ts       # 增量扫描状态机（今日/本月/会话累计 + 按模型拆分）
 ├── effort.ts            # Thinking effort parsing
 ├── external-usage.ts    # External usage snapshot fallback / balance_label
 ├── speed-tracker.ts     # Output speed tracking
@@ -99,6 +101,7 @@ src/
         ├── environment.ts   # Config counts (opt-in)
         ├── advisor.ts       # Advisor model label (opt-in)
         ├── cost.ts          # Session cost display
+        ├── rmb-cost.ts     # DeepSeek 人民币费用行渲染（opt-in, showRmbCost）
         ├── prompt-cache.ts  # Prompt cache countdown
         ├── memory.ts        # Memory usage display
         ├── session-time.ts  # Session duration / timestamps

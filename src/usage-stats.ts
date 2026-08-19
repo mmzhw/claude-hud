@@ -7,7 +7,7 @@
 //   保证跨多次触发也能还原 DeepSeek 实际计费。
 // 会话归属：主会话文件 projects/<项目>/<sessionId>.jsonl 归该会话；
 //   子代理文件 <sessionId>/subagents/*.jsonl 归父会话（会话花费含子代理）。
-//   会话切换（新会话 id）时只重置会话累计、不清偏移（新会话转录尚无已消费记录）。
+//   会话切换（新会话 id）时整体重建，回溯当前会话的历史记录。
 // 本月累计：monthTotal 跨天持久累加，文件偏移跨天不清零（漏开机的天数由增量消费自然补齐）；
 //   新月或旧版本状态时偏移置空、全量重读本月记录一次（一次性回溯）。
 // 计价生效日期：峰谷分时计价自 2026-08-17 起生效，之前的记录过滤不计入；
@@ -86,8 +86,11 @@ export interface UsageStatsResult {
   today: CostBucket;
   month: CostBucket;
   session: CostBucket;
+  /** 当前渲染只用 todayPerModel（设计：只拆今日） */
   todayPerModel: Record<string, CostBucket>;
+  /** 月/会话按模型拆分：当前渲染未使用，保留供未来扩展（如月/会话按模型拆分） */
   monthPerModel: Record<string, CostBucket>;
+  /** 会话层按模型拆分：当前渲染未使用，保留供未来扩展 */
   sessionPerModel: Record<string, CostBucket>;
   sessionId: string | null;
 }
@@ -123,9 +126,9 @@ function freshState(month: string, date: string, sessionId: string | null): Usag
 /**
  * 加载状态：
  * - 同月内跨天：只清零今日累计，文件偏移与本月累计保留（漏掉的天数由增量消费补齐）
- * - 会话切换：只重置会话累计（新会话的转录此前尚未消费，无需回溯）
- * - 新月、旧版本状态、计价生效日期变更或首次启用会话统计：整体重建
- *   （偏移置空，触发全量重读的一次性回溯）
+ * - 会话切换（含首次启用会话统计）：整体重建（偏移置空、全量重读本月转录，
+ *   从而回溯当前会话的历史记录）
+ * - 新月、旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
  */
 function loadState(stateFile: string, today: string, month: string, sessionId: string | null): UsageStateFile {
   try {
@@ -144,10 +147,6 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
       let out = s as UsageStateFile;
       if (s.date !== today) {
         out = { ...out, date: today, totals: zeroScope() };
-      }
-      if (sessionId != null && s.sessionId !== sessionId) {
-        // 新会话：仅重置会话累计
-        out = { ...out, sessionId, sessionTotals: zeroScope() };
       }
       return out;
     }

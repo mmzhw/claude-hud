@@ -24,6 +24,7 @@ test('isPeak 北京高峰时段边界（9-12、14-18）', () => {
 test('beijingDate 跨时区取北京日期', () => {
   assert.equal(beijingDate('2026-08-18T16:30:00.000Z'), '2026-08-19'); // UTC 前一天 16:30 → 北京次日
   assert.equal(beijingDate('2026-08-19T00:00:00.000Z'), '2026-08-19');
+  assert.equal(beijingDate('invalid'), ''); // 非法时间戳返回空串，不抛 RangeError
 });
 
 test('tokenSplit 提取计费 token 分类', () => {

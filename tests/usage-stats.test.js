@@ -253,6 +253,23 @@ test('旧版本状态（无 stateV）整体重建后按转录重算', async () =
   }
 });
 
+test('非法时间戳的记录被跳过而非毒化统计', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: 'not-a-date', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result); // 不返回 null
+    assert.equal(result.today.costOff, 0);
+    assert.equal(result.month.costOff, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('新月滚动整体重建：上月状态被全量重读覆盖', async () => {
   const { dir, root, stateFile } = await makeFixture();
   try {
