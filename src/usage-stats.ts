@@ -19,6 +19,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { getClaudeConfigDir } from './claude-config-dir.js';
 import {
   beijingDate,
   costOfTokens,
@@ -91,9 +92,9 @@ export interface UsageStatsResult {
   sessionId: string | null;
 }
 
-/** Claude 配置目录（与现有脚本的 CLAUDE_CONFIG_DIR 口径一致） */
+/** Claude 配置目录（复用 HUD 全局口径：CLAUDE_CONFIG_DIR 支持 ~ 前缀展开并做路径规范化） */
 function defaultConfigDir(): string {
-  return process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude');
+  return getClaudeConfigDir(os.homedir());
 }
 
 function zeroBucket(): CostBucket {

@@ -326,5 +326,6 @@ test('showRmbCost 关闭时美元 cost 段正常渲染', () => {
     stdin: { model: { display_name: 'Opus' }, cost: { total_cost_usd: 0.5 } },
     transcript: { sessionTokens: undefined },
   };
-  assert.ok(typeof renderCostEstimate(ctx) === 'string');
+  // 原生 cost.total_cost_usd = 0.5 → formatUsd 走 0.1..1 区间 toFixed(3) → "$0.500"
+  assert.match(renderCostEstimate(ctx), /\$0\.500/);
 });
