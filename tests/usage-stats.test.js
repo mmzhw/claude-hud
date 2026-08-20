@@ -299,3 +299,52 @@ test('新月滚动整体重建：上月状态被全量重读覆盖', async () =>
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('跨天留存昨天桶：昨天费用进 yesterday，今天费用进 today', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-19 空闲：pro miss 1M + out 1M = 18 元
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-19T06:00:00.000Z' });
+    assert.ok(first);
+    assert.equal(first.today.costOff, 18);
+
+    // 8-20 同月新记录：flash 空闲 miss 1M + out 1M = 6 元
+    await appendFile(file, assistantLine({ id: 'm2', model: 'deepseek-v4-flash', ts: '2026-08-20T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-20T06:00:00.000Z' });
+    assert.ok(second);
+    assert.equal(second.today.costOff, 6);      // 只有 8-20 的 flash 记录
+    assert.equal(second.yesterday.costOff, 18); // 8-19 的 pro 记录留存为昨天
+    assert.equal(second.month.costOff, 24);     // 18 + 6
+    assert.equal(second.yesterdayPerModel['deepseek-v4-pro'].costOff, 18);
+    assert.equal(second.todayPerModel['deepseek-v4-flash'].costOff, 6);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('跨天去重扣回按日期落桶：旧分片从昨天桶扣、完整分片进今天桶', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-19 中间分片（output=0）
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000, out: 0, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-19T06:00:00.000Z' });
+    assert.ok(first);
+
+    // 8-20 同一 message.id 的更完整分片（时间戳落在次日）
+    await appendFile(file, assistantLine({ id: 'm1', ts: '2026-08-20T05:00:00.000Z', miss: 2_000, out: 200, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-20T06:00:00.000Z' });
+    assert.ok(second);
+    const fullCost = (2_000 * 4.5 + 200 * 13.5) / 1e6;
+    // 昨天的桶扣回旧分片归零；完整分片按新日期计入今天
+    assert.equal(second.yesterday.costOff, 0);
+    assert.ok(Math.abs(second.today.costOff - fullCost) < 1e-12);
+    assert.ok(Math.abs(second.month.costOff - fullCost) < 1e-12);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

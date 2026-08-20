@@ -8,8 +8,11 @@
 // 会话归属：主会话文件 projects/<项目>/<sessionId>.jsonl 归该会话；
 //   子代理文件 <sessionId>/subagents/*.jsonl 归父会话（会话花费含子代理）。
 //   会话切换（新会话 id）时整体重建，回溯当前会话的历史记录。
+// 按天累计：dayTotals 以北京日期为键，记录按自身日期落桶（跨天补到的更完整分片
+//   会把该消息费用从旧日期桶挪到新日期桶）。渲染取今天与昨天两个桶。
 // 本月累计：monthTotal 跨天持久累加，文件偏移跨天不清零（漏开机的天数由增量消费自然补齐）；
 //   新月或旧版本状态时偏移置空、全量重读本月记录一次（一次性回溯）。
+//   月初跨月时"日历昨天"的桶搬运进新状态——回放只重读本月记录，上月昨天必须靠搬运保留。
 // 计价生效日期：峰谷分时计价自 2026-08-17 起生效，之前的记录过滤不计入；
 //   状态里记录 pricingEra，生效日期常量变更时自动整体重建，避免旧数据残留。
 //
@@ -27,11 +30,12 @@ import {
   PRICING_EFFECTIVE_DATE,
   sessionOfFile,
   tokenSplit,
+  yesterdayOf,
   type TokenSplit,
 } from './deepseek-pricing.js';
 
-/** 状态文件版本：v2 起各层累计带 perModel 字段、msgs 记录带 model；旧版本状态整体重建一次 */
-const STATE_VERSION = 2;
+/** 状态文件版本：v2 起各层累计带 perModel 字段、msgs 记录带 model；v3 起今日层改为按天累计 dayTotals。旧版本状态整体重建一次 */
+const STATE_VERSION = 3;
 
 /** 单层累计（今日/本月/会话）：token 分类 + 峰谷费用 */
 export interface CostBucket {
@@ -57,14 +61,15 @@ interface MsgState extends TokenSplit {
   model: string;
 }
 
-/** 状态文件结构（与 usage-statusline.mjs 原格式兼容，新增 stateV/perModel/model 字段） */
+/** 状态文件结构（与 usage-statusline.mjs 原格式兼容，新增 stateV/perModel/model 字段；v3 起 totals 改为 dayTotals） */
 interface UsageStateFile {
   stateV: number;
   month: string;
   date: string;
   pricingEra: string;
   sessionId: string | null;
-  totals: ScopeState;
+  /** 按天累计：北京日期 YYYY-MM-DD → 当日累计（含 perModel） */
+  dayTotals: Record<string, ScopeState>;
   monthTotal: ScopeState;
   sessionTotals: ScopeState;
   files: Record<string, number>;
@@ -84,10 +89,14 @@ export interface UsageStatsOptions {
 
 export interface UsageStatsResult {
   today: CostBucket;
+  /** 昨天累计（无数据时为零桶，配合渲染"昨¥0.00"始终显示） */
+  yesterday: CostBucket;
   month: CostBucket;
   session: CostBucket;
-  /** 当前渲染只用 todayPerModel（设计：只拆今日） */
+  /** 今天按模型拆分（昨天行与今天行各用各的拆分） */
   todayPerModel: Record<string, CostBucket>;
+  /** 昨天按模型拆分（无数据时为空对象） */
+  yesterdayPerModel: Record<string, CostBucket>;
   /** 月/会话按模型拆分：当前渲染未使用，保留供未来扩展（如月/会话按模型拆分） */
   monthPerModel: Record<string, CostBucket>;
   /** 会话层按模型拆分：当前渲染未使用，保留供未来扩展 */
@@ -115,7 +124,7 @@ function freshState(month: string, date: string, sessionId: string | null): Usag
     date,
     pricingEra: PRICING_EFFECTIVE_DATE,
     sessionId,
-    totals: zeroScope(),
+    dayTotals: {},
     monthTotal: zeroScope(),
     sessionTotals: zeroScope(),
     files: {},
@@ -125,30 +134,35 @@ function freshState(month: string, date: string, sessionId: string | null): Usag
 
 /**
  * 加载状态：
- * - 同月内跨天：只清零今日累计，文件偏移与本月累计保留（漏掉的天数由增量消费补齐）
+ * - 同月内跨天：只更新"今天"；dayTotals 各天桶保留（今天桶天然从 0 开始）
  * - 会话切换（含首次启用会话统计）：整体重建（偏移置空、全量重读本月转录，
- *   从而回溯当前会话的历史记录）
- * - 新月、旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
+ *   从而回溯当前会话的历史记录；同月回放会重建各天桶）
+ * - 新月：整体重建（偏移置空，触发全量重读的一次性回溯）
+ * - 旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
  */
 function loadState(stateFile: string, today: string, month: string, sessionId: string | null): UsageStateFile {
   try {
     const raw = fs.readFileSync(stateFile, 'utf8');
     const s = JSON.parse(raw) as Partial<UsageStateFile>;
-    if (
-      s?.stateV === STATE_VERSION
-      && s.pricingEra === PRICING_EFFECTIVE_DATE
-      && s.month === month
-      && (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId)
-    ) {
-      if (sessionId != null && s.sessionId === undefined) {
-        // 首次启用会话统计：整体重建，回溯当前会话的历史记录
+    if (s?.stateV === STATE_VERSION && s.pricingEra === PRICING_EFFECTIVE_DATE) {
+      if (s.month !== month) {
+        // 新月：整体重建（偏移置空、全量重读本月转录）
         return freshState(month, today, sessionId);
       }
-      let out = s as UsageStateFile;
-      if (s.date !== today) {
-        out = { ...out, date: today, totals: zeroScope() };
+      if (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId) {
+        if (sessionId != null && s.sessionId === undefined) {
+          // 首次启用会话统计：整体重建，回溯当前会话的历史记录
+          return freshState(month, today, sessionId);
+        }
+        let out = s as UsageStateFile;
+        if (s.date !== today) {
+          // 跨天只更新"今天"；各天桶保留，今天的桶天然从 0 开始
+          out = { ...out, date: today };
+        }
+        return out;
       }
-      return out;
+      // 会话切换：整体重建，回溯当前会话的历史记录（同月回放会重建各天桶）
+      return freshState(month, today, sessionId);
     }
   } catch {
     // 状态文件损坏或不存在 → 重建
@@ -262,24 +276,23 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
       if (old && t.out <= old.out) return; // 旧分片已完整，忽略重复/更旧的分片
       if (old) {
         // 同一消息的更新分片：先扣回旧贡献（跨天/跨会话分片只影响对应累计）
-        if (old.date === today) {
-          applyToScope(state.totals, -1, old, old.cost, old.peak, old.model);
-        }
         if (old.month === state.month) {
           applyToScope(state.monthTotal, -1, old, old.cost, old.peak, old.model);
         }
         if (old.session === state.sessionId) {
           applyToScope(state.sessionTotals, -1, old, old.cost, old.peak, old.model);
         }
+        // 按天桶扣回：旧分片按它落桶的日期扣（跨天补到的更完整分片会把该消息费用挪到新日期桶）
+        const oldDay = state.dayTotals[old.date] ?? (state.dayTotals[old.date] = zeroScope());
+        applyToScope(oldDay, -1, old, old.cost, old.peak, old.model);
       }
       state.msgs[id] = { ...t, peak, cost, date, month, session, model };
 
       // 本月累计：始终计入
       applyToScope(state.monthTotal, 1, t, cost, peak, model);
-      // 今日累计：仅当天记录计入
-      if (date === today) {
-        applyToScope(state.totals, 1, t, cost, peak, model);
-      }
+      // 按天累计：按记录自身北京日期落桶
+      const day = state.dayTotals[date] ?? (state.dayTotals[date] = zeroScope());
+      applyToScope(day, 1, t, cost, peak, model);
       // 会话累计：仅当前会话（含其子代理）计入
       if (session === state.sessionId) {
         applyToScope(state.sessionTotals, 1, t, cost, peak, model);
@@ -323,11 +336,16 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
 
     persistState(stateFile, state);
 
+    const yesterdayKey = yesterdayOf(today);
+    const todayBucket = state.dayTotals[today] ?? zeroScope();
+    const yesterdayBucket = state.dayTotals[yesterdayKey] ?? zeroScope();
     return {
-      today: state.totals,
+      today: todayBucket,
+      yesterday: yesterdayBucket,
       month: state.monthTotal,
       session: state.sessionTotals,
-      todayPerModel: state.totals.perModel,
+      todayPerModel: todayBucket.perModel,
+      yesterdayPerModel: yesterdayBucket.perModel,
       monthPerModel: state.monthTotal.perModel,
       sessionPerModel: state.sessionTotals.perModel,
       sessionId: state.sessionId,
