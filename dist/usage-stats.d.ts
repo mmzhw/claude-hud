@@ -18,10 +18,14 @@ export interface UsageStatsOptions {
 }
 export interface UsageStatsResult {
     today: CostBucket;
+    /** 昨天累计（无数据时为零桶，配合渲染"昨¥0.00"始终显示） */
+    yesterday: CostBucket;
     month: CostBucket;
     session: CostBucket;
-    /** 当前渲染只用 todayPerModel（设计：只拆今日） */
+    /** 今天行按模型拆分 */
     todayPerModel: Record<string, CostBucket>;
+    /** 昨天按模型拆分（无数据时为空对象） */
+    yesterdayPerModel: Record<string, CostBucket>;
     /** 月/会话按模型拆分：当前渲染未使用，保留供未来扩展（如月/会话按模型拆分） */
     monthPerModel: Record<string, CostBucket>;
     /** 会话层按模型拆分：当前渲染未使用，保留供未来扩展 */

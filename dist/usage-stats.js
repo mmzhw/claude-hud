@@ -8,6 +8,9 @@
 // 会话归属：主会话文件 projects/<项目>/<sessionId>.jsonl 归该会话；
 //   子代理文件 <sessionId>/subagents/*.jsonl 归父会话（会话花费含子代理）。
 //   会话切换（新会话 id）时整体重建，回溯当前会话的历史记录。
+// 按天累计：dayTotals 以北京日期为键，记录按自身日期落桶（跨天补到的更完整分片
+//   会把该消息费用从旧日期桶挪到新日期桶）。渲染取今天与昨天两个桶。
+//   月初跨月时"日历昨天"的桶搬运进新状态——回放只重读本月记录，上月昨天必须靠搬运保留。
 // 本月累计：monthTotal 跨天持久累加，文件偏移跨天不清零（漏开机的天数由增量消费自然补齐）；
 //   新月或旧版本状态时偏移置空、全量重读本月记录一次（一次性回溯）。
 // 计价生效日期：峰谷分时计价自 2026-08-17 起生效，之前的记录过滤不计入；
@@ -19,9 +22,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getClaudeConfigDir } from './claude-config-dir.js';
-import { beijingDate, costOfTokens, isPeak, PRICING_EFFECTIVE_DATE, sessionOfFile, tokenSplit, } from './deepseek-pricing.js';
-/** 状态文件版本：v2 起各层累计带 perModel 字段、msgs 记录带 model；旧版本状态整体重建一次 */
-const STATE_VERSION = 2;
+import { beijingDate, costOfTokens, isPeak, PRICING_EFFECTIVE_DATE, sessionOfFile, tokenSplit, yesterdayOf, } from './deepseek-pricing.js';
+/** 状态文件版本：v2 起各层累计带 perModel 字段、msgs 记录带 model；v3 起今日层改为按天累计 dayTotals。旧版本状态整体重建一次 */
+const STATE_VERSION = 3;
 /** Claude 配置目录（复用 HUD 全局口径：CLAUDE_CONFIG_DIR 支持 ~ 前缀展开并做路径规范化） */
 function defaultConfigDir() {
     return getClaudeConfigDir(os.homedir());
@@ -39,7 +42,7 @@ function freshState(month, date, sessionId) {
         date,
         pricingEra: PRICING_EFFECTIVE_DATE,
         sessionId,
-        totals: zeroScope(),
+        dayTotals: {},
         monthTotal: zeroScope(),
         sessionTotals: zeroScope(),
         files: {},
@@ -47,29 +50,57 @@ function freshState(month, date, sessionId) {
     };
 }
 /**
+ * 整体重建（偏移置空、全量重读本月转录），并按需把"日历昨天"的桶搬运进新状态：
+ * 回放只重读本月记录，昨天在上月时（月初 1 号）回放读不到、必须靠搬运保留；
+ * 昨天在本月时不搬运——回放会自然重建（搬运反而会与回放重复累计）。
+ */
+function rebuildCarryingYesterday(s, month, today, sessionId) {
+    const fresh = freshState(month, today, sessionId);
+    const yesterdayKey = yesterdayOf(today);
+    if (yesterdayKey.slice(0, 7) !== month) {
+        const carried = s.dayTotals?.[yesterdayKey];
+        if (carried)
+            fresh.dayTotals[yesterdayKey] = carried;
+    }
+    return fresh;
+}
+/**
  * 加载状态：
- * - 同月内跨天：只清零今日累计，文件偏移与本月累计保留（漏掉的天数由增量消费补齐）
+ * - 同月内跨天：只更新"今天"；dayTotals 各天桶保留（今天桶天然从 0 开始）
  * - 会话切换（含首次启用会话统计）：整体重建（偏移置空、全量重读本月转录，
- *   从而回溯当前会话的历史记录）
- * - 新月、旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
+ *   从而回溯当前会话的历史记录；同月回放重建各天桶）；昨天在上月时搬运旧状态昨天桶
+ * - 新月：整体重建（偏移置空，触发全量重读的一次性回溯）；"日历昨天"的桶跨月搬运保留
+ * - 旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
  */
 function loadState(stateFile, today, month, sessionId) {
     try {
         const raw = fs.readFileSync(stateFile, 'utf8');
         const s = JSON.parse(raw);
-        if (s?.stateV === STATE_VERSION
-            && s.pricingEra === PRICING_EFFECTIVE_DATE
-            && s.month === month
-            && (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId)) {
-            if (sessionId != null && s.sessionId === undefined) {
-                // 首次启用会话统计：整体重建，回溯当前会话的历史记录
-                return freshState(month, today, sessionId);
+        if (s?.stateV === STATE_VERSION && s.pricingEra === PRICING_EFFECTIVE_DATE) {
+            if (s.month !== month) {
+                // 新月：整体重建（偏移置空、全量重读本月转录）。
+                // "日历昨天"的桶跨月搬运：回放只重读本月记录，上月昨天的累计必须靠搬运保留，
+                // 否则月初 1 号的昨天行会错误归零。
+                // 已知限制：跨月补到的更完整分片会与搬运来的昨天桶重复计费（msgs 跨月重置、去重不可达），
+                // 金额为中间分片、次日剪枝自愈；不值得为此恢复跨月 msgs 去重。
+                // 新月时昨天必在上月，helper 的月份判断自然为真，行为与上述注释一致
+                return rebuildCarryingYesterday(s, month, today, sessionId);
             }
-            let out = s;
-            if (s.date !== today) {
-                out = { ...out, date: today, totals: zeroScope() };
+            if (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId) {
+                if (sessionId != null && s.sessionId === undefined) {
+                    // 首次启用会话统计：整体重建，回溯当前会话的历史记录
+                    return rebuildCarryingYesterday(s, month, today, sessionId);
+                }
+                let out = s;
+                if (s.date !== today) {
+                    // 跨天只更新"今天"；各天桶保留，今天的桶天然从 0 开始
+                    out = { ...out, date: today };
+                }
+                return out;
             }
-            return out;
+            // 会话切换：整体重建，回溯当前会话的历史记录（同月回放会重建各天桶）；
+            // 昨天在上月时（月初 1 号）搬运旧状态的昨天桶，防止昨天行错误归零
+            return rebuildCarryingYesterday(s, month, today, sessionId);
         }
     }
     catch {
@@ -170,23 +201,23 @@ export function updateUsageStats(options = {}) {
                 return; // 旧分片已完整，忽略重复/更旧的分片
             if (old) {
                 // 同一消息的更新分片：先扣回旧贡献（跨天/跨会话分片只影响对应累计）
-                if (old.date === today) {
-                    applyToScope(state.totals, -1, old, old.cost, old.peak, old.model);
-                }
                 if (old.month === state.month) {
                     applyToScope(state.monthTotal, -1, old, old.cost, old.peak, old.model);
                 }
                 if (old.session === state.sessionId) {
                     applyToScope(state.sessionTotals, -1, old, old.cost, old.peak, old.model);
                 }
+                // 按天桶扣回：旧分片按它落桶的日期扣（跨天补到的更完整分片会把该消息费用挪到新日期桶）
+                // msgs 里的记录恒在本月内（上方按月份过滤），old.date 的桶必然存在，??= 仅为防御
+                const oldDay = state.dayTotals[old.date] ?? (state.dayTotals[old.date] = zeroScope());
+                applyToScope(oldDay, -1, old, old.cost, old.peak, old.model);
             }
             state.msgs[id] = { ...t, peak, cost, date, month, session, model };
             // 本月累计：始终计入
             applyToScope(state.monthTotal, 1, t, cost, peak, model);
-            // 今日累计：仅当天记录计入
-            if (date === today) {
-                applyToScope(state.totals, 1, t, cost, peak, model);
-            }
+            // 按天累计：按记录自身北京日期落桶
+            const day = state.dayTotals[date] ?? (state.dayTotals[date] = zeroScope());
+            applyToScope(day, 1, t, cost, peak, model);
             // 会话累计：仅当前会话（含其子代理）计入
             if (session === state.sessionId) {
                 applyToScope(state.sessionTotals, 1, t, cost, peak, model);
@@ -228,12 +259,24 @@ export function updateUsageStats(options = {}) {
             }
             state.files[file] = offset + consumed;
         }
+        // 剪枝：dayTotals 只保留本月各天 + 日历昨天（最多 ~32 个桶）。正常流程不会残留，
+        // 此为防御脏状态/未来回归的保险
+        const yesterdayKey = yesterdayOf(today);
+        for (const key of Object.keys(state.dayTotals)) {
+            if (key !== yesterdayKey && key.slice(0, 7) !== state.month) {
+                delete state.dayTotals[key];
+            }
+        }
         persistState(stateFile, state);
+        const todayBucket = state.dayTotals[today] ?? zeroScope();
+        const yesterdayBucket = state.dayTotals[yesterdayKey] ?? zeroScope();
         return {
-            today: state.totals,
+            today: todayBucket,
+            yesterday: yesterdayBucket,
             month: state.monthTotal,
             session: state.sessionTotals,
-            todayPerModel: state.totals.perModel,
+            todayPerModel: todayBucket.perModel,
+            yesterdayPerModel: yesterdayBucket.perModel,
             monthPerModel: state.monthTotal.perModel,
             sessionPerModel: state.sessionTotals.perModel,
             sessionId: state.sessionId,

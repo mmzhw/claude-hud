@@ -93,4 +93,11 @@ export function costOfTokens(model, t, peak) {
 export function displayNameOf(model) {
     return PRICES_RMB_PER_MILLION[model]?.displayName ?? model;
 }
+/** 昨天的北京日期（YYYY-MM-DD → YYYY-MM-DD）；纯日期运算不涉及时区换算；非法（不可解析）日期返回空串，日溢出日期按引擎规则进位（调用方只传入 beijingDate 生成的合法键） */
+export function yesterdayOf(date) {
+    const d = new Date(`${date}T00:00:00Z`);
+    if (Number.isNaN(d.getTime()))
+        return '';
+    return new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
+}
 //# sourceMappingURL=deepseek-pricing.js.map

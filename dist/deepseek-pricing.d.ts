@@ -63,4 +63,6 @@ export declare function tokenSplit(usage: {
 export declare function costOfTokens(model: string, t: TokenSplit, peak: boolean): number | null;
 /** 模型显示名：计价表 displayName 短写，缺省用原始模型名 */
 export declare function displayNameOf(model: string): string;
+/** 昨天的北京日期（YYYY-MM-DD → YYYY-MM-DD）；纯日期运算不涉及时区换算；非法（不可解析）日期返回空串，日溢出日期按引擎规则进位（调用方只传入 beijingDate 生成的合法键） */
+export declare function yesterdayOf(date: string): string;
 //# sourceMappingURL=deepseek-pricing.d.ts.map
