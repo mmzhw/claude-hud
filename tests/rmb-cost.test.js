@@ -60,6 +60,25 @@ test('无会话 id 时省略会话段（仅今天行）', () => {
   );
 });
 
+test('昨天零桶但有 perModel 条目时显示零额括号（与今天行既有行为一致）', () => {
+  assert.equal(
+    renderRmbCostLine(stats({ yesterday: bucket(0, 0), yesterdayPerModel: { 'deepseek-v4-pro': bucket(0, 0) } })),
+    '昨¥0.00(pro¥0.00)\n⚡今¥3.50(pro¥3.00/flash¥0.50) 峰¥3.50 月¥145.26 会话¥7.52',
+  );
+});
+
+test('峰谷同时非零时两天各显示两段', () => {
+  assert.equal(
+    renderRmbCostLine(stats({
+      yesterday: bucket(0.8, 0.43),
+      yesterdayPerModel: { 'deepseek-v4-pro': bucket(0.8, 0.43) },
+      today: bucket(2.0, 1.5),
+      todayPerModel: { 'deepseek-v4-pro': bucket(2.0, 1.5) },
+    })),
+    '昨¥1.23(pro¥1.23) 峰¥0.80 谷¥0.43\n⚡今¥3.50(pro¥3.50) 峰¥2.00 谷¥1.50 月¥145.26 会话¥7.52',
+  );
+});
+
 test('今天空闲时段费用显示谷段', () => {
   assert.equal(
     renderRmbCostLine(stats({ today: bucket(0, 2.5), todayPerModel: { 'deepseek-v4-pro': bucket(0, 2.5) } })),
