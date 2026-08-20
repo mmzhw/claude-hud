@@ -401,3 +401,26 @@ test('v2 状态升级 v3 整体重建：伪造累计被覆盖、昨天按转录�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('月初跨月搬运昨天桶：9-01 的昨天行保留 8-31 累计', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-31 北京 13:00 空闲：18 元
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-31T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-31T06:00:00.000Z' });
+    assert.ok(first);
+    assert.equal(first.today.costOff, 18);
+
+    // 9-01：新月触发整体重建（回放只重读 9 月记录），8-31 桶须靠搬运保留
+    await appendFile(file, assistantLine({ id: 'm2', ts: '2026-09-01T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-09-01T06:00:00.000Z' });
+    assert.ok(second);
+    assert.equal(second.today.costOff, 18);     // 9-01 新记录
+    assert.equal(second.yesterday.costOff, 18); // 8-31 桶被搬运保留
+    assert.equal(second.month.costOff, 18);     // 9 月只有 9-01 的记录
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

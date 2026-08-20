@@ -12,6 +12,7 @@
 //   会把该消息费用从旧日期桶挪到新日期桶）。渲染取今天与昨天两个桶。
 // 本月累计：monthTotal 跨天持久累加，文件偏移跨天不清零（漏开机的天数由增量消费自然补齐）；
 //   新月或旧版本状态时偏移置空、全量重读本月记录一次（一次性回溯）。
+//   月初跨月时"日历昨天"的桶搬运进新状态——回放只重读本月记录，上月昨天必须靠搬运保留。
 // 计价生效日期：峰谷分时计价自 2026-08-17 起生效，之前的记录过滤不计入；
 //   状态里记录 pricingEra，生效日期常量变更时自动整体重建，避免旧数据残留。
 //
@@ -136,7 +137,7 @@ function freshState(month: string, date: string, sessionId: string | null): Usag
  * - 同月内跨天：只更新"今天"；dayTotals 各天桶保留（今天桶天然从 0 开始）
  * - 会话切换（含首次启用会话统计）：整体重建（偏移置空、全量重读本月转录，
  *   从而回溯当前会话的历史记录；同月回放会重建各天桶）
- * - 新月：整体重建（偏移置空，触发全量重读的一次性回溯）
+ * - 新月：整体重建（偏移置空，触发全量重读的一次性回溯）；"日历昨天"的桶跨月搬运保留
  * - 旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
  */
 function loadState(stateFile: string, today: string, month: string, sessionId: string | null): UsageStateFile {
@@ -145,8 +146,14 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
     const s = JSON.parse(raw) as Partial<UsageStateFile>;
     if (s?.stateV === STATE_VERSION && s.pricingEra === PRICING_EFFECTIVE_DATE) {
       if (s.month !== month) {
-        // 新月：整体重建（偏移置空、全量重读本月转录）
-        return freshState(month, today, sessionId);
+        // 新月：整体重建（偏移置空、全量重读本月转录）。
+        // "日历昨天"的桶跨月搬运：回放只重读本月记录，上月昨天的累计必须靠搬运保留，
+        // 否则月初 1 号的昨天行会错误归零。
+        const fresh = freshState(month, today, sessionId);
+        const yesterdayKey = yesterdayOf(today);
+        const carried = s.dayTotals?.[yesterdayKey];
+        if (carried) fresh.dayTotals[yesterdayKey] = carried;
+        return fresh;
       }
       if (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId) {
         if (sessionId != null && s.sessionId === undefined) {
