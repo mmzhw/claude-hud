@@ -343,9 +343,16 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
       state.files[file] = offset + consumed;
     }
 
+    // 剪枝：dayTotals 只保留本月各天 + 日历昨天，防跨月残留膨胀（最多 ~32 个桶）
+    const yesterdayKey = yesterdayOf(today);
+    for (const key of Object.keys(state.dayTotals)) {
+      if (key !== yesterdayKey && key.slice(0, 7) !== state.month) {
+        delete state.dayTotals[key];
+      }
+    }
+
     persistState(stateFile, state);
 
-    const yesterdayKey = yesterdayOf(today);
     const todayBucket = state.dayTotals[today] ?? zeroScope();
     const yesterdayBucket = state.dayTotals[yesterdayKey] ?? zeroScope();
     return {

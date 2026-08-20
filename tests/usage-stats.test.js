@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { updateUsageStats } from '../dist/usage-stats.js';
@@ -444,6 +444,41 @@ test('跨月与会话切换同时发生时昨天桶仍被搬运，会话累计�
     assert.equal(second.today.costOff, 18);     // 9-01 新记录
     assert.equal(second.session.costOff, 18);   // 会话累计归新会话 sess-2
     assert.equal(second.month.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('持久化前剪枝：非本月且非日历昨天的桶被移除', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    // 伪造 v3 状态：dayTotals 里塞一个上月残留桶（正常流程只会经搬运产生日历昨天桶）
+    await mkdir(path.dirname(stateFile), { recursive: true });
+    await writeFile(stateFile, JSON.stringify({
+      stateV: 3,
+      month: '2026-08',
+      date: '2026-08-19',
+      pricingEra: '2026-08-17',
+      sessionId: 'sess-1',
+      dayTotals: {
+        '2026-07-30': { miss: 1, hit: 0, out: 0, costPeak: 0, costOff: 1, perModel: {} },
+      },
+      monthTotal: { miss: 0, hit: 0, out: 0, costPeak: 0, costOff: 0, perModel: {} },
+      sessionTotals: { miss: 0, hit: 0, out: 0, costPeak: 0, costOff: 0, perModel: {} },
+      files: {},
+      msgs: {},
+    }));
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    // 本次扫描计入 8-19 桶；上月残留桶被剪掉
+    const persisted = JSON.parse(await readFile(stateFile, 'utf8'));
+    assert.ok(persisted.dayTotals['2026-08-19']);
+    assert.ok(!('2026-07-30' in persisted.dayTotals));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
