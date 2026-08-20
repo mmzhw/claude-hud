@@ -4402,19 +4402,21 @@ test('showRmbCost 开启时 expanded/compact 布局末尾追加费用行', async
 
     // 注意：render 里的 updateUsageStats 用"当前真实时间"算 today/month（无注入点），
     // 记录落在本月时费用非零、落不到（更晚的月份）时费用为零——断言放宽为
-    // 末行匹配 /^⚡今¥/（费用行出现即可），不锁具体金额。
+    // 倒数第二行匹配 /^昨¥/、末行匹配 /^⚡今¥/（两行费用行出现即可），不锁具体金额。
     const ctx = baseContext();
     ctx.stdin = { ...ctx.stdin, session_id: 'sess-1' };
     ctx.config.display.showRmbCost = true;
 
-    // expanded
+    // expanded（两行费用：昨天行在上、今天行在下）
     ctx.config.lineLayout = 'expanded';
     const out1 = withTerminal(200, () => captureRenderLines(ctx));
+    assert.match(out1[out1.length - 2], /^昨¥/, `expanded 布局倒数第二行应为昨天费用行，got: ${out1[out1.length - 2]}`);
     assert.match(out1[out1.length - 1], /^⚡今¥/, `expanded 布局末行应为费用行，got: ${out1[out1.length - 1]}`);
 
     // compact（复用同一 ctx，第二次触发走状态文件累计，费用行仍应追加）
     ctx.config.lineLayout = 'compact';
     const out2 = withTerminal(200, () => captureRenderLines(ctx));
+    assert.match(out2[out2.length - 2], /^昨¥/, `compact 布局倒数第二行应为昨天费用行，got: ${out2[out2.length - 2]}`);
     assert.match(out2[out2.length - 1], /^⚡今¥/, `compact 布局末行应为费用行，got: ${out2[out2.length - 1]}`);
   } finally {
     if (oldConfigDir === undefined) {
