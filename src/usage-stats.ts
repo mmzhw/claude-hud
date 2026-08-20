@@ -133,10 +133,30 @@ function freshState(month: string, date: string, sessionId: string | null): Usag
 }
 
 /**
+ * 整体重建（偏移置空、全量重读本月转录），并按需把"日历昨天"的桶搬运进新状态：
+ * 回放只重读本月记录，昨天在上月时（月初 1 号）回放读不到、必须靠搬运保留；
+ * 昨天在本月时不搬运——回放会自然重建（搬运反而会与回放重复累计）。
+ */
+function rebuildCarryingYesterday(
+  s: Partial<UsageStateFile>,
+  month: string,
+  today: string,
+  sessionId: string | null,
+): UsageStateFile {
+  const fresh = freshState(month, today, sessionId);
+  const yesterdayKey = yesterdayOf(today);
+  if (yesterdayKey.slice(0, 7) !== month) {
+    const carried = s.dayTotals?.[yesterdayKey];
+    if (carried) fresh.dayTotals[yesterdayKey] = carried;
+  }
+  return fresh;
+}
+
+/**
  * 加载状态：
  * - 同月内跨天：只更新"今天"；dayTotals 各天桶保留（今天桶天然从 0 开始）
  * - 会话切换（含首次启用会话统计）：整体重建（偏移置空、全量重读本月转录，
- *   从而回溯当前会话的历史记录；同月回放会重建各天桶）
+ *   从而回溯当前会话的历史记录；同月回放重建各天桶）；昨天在上月时搬运旧状态昨天桶
  * - 新月：整体重建（偏移置空，触发全量重读的一次性回溯）；"日历昨天"的桶跨月搬运保留
  * - 旧版本状态、计价生效日期变更：整体重建（偏移置空，触发全量重读的一次性回溯）
  */
@@ -151,16 +171,13 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
         // 否则月初 1 号的昨天行会错误归零。
         // 已知限制：跨月补到的更完整分片会与搬运来的昨天桶重复计费（msgs 跨月重置、去重不可达），
         // 金额为中间分片、次日剪枝自愈；不值得为此恢复跨月 msgs 去重。
-        const fresh = freshState(month, today, sessionId);
-        const yesterdayKey = yesterdayOf(today);
-        const carried = s.dayTotals?.[yesterdayKey];
-        if (carried) fresh.dayTotals[yesterdayKey] = carried;
-        return fresh;
+        // 新月时昨天必在上月，helper 的月份判断自然为真，行为与上述注释一致
+        return rebuildCarryingYesterday(s, month, today, sessionId);
       }
       if (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId) {
         if (sessionId != null && s.sessionId === undefined) {
           // 首次启用会话统计：整体重建，回溯当前会话的历史记录
-          return freshState(month, today, sessionId);
+          return rebuildCarryingYesterday(s, month, today, sessionId);
         }
         let out = s as UsageStateFile;
         if (s.date !== today) {
@@ -169,8 +186,9 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
         }
         return out;
       }
-      // 会话切换：整体重建，回溯当前会话的历史记录（同月回放会重建各天桶）
-      return freshState(month, today, sessionId);
+      // 会话切换：整体重建，回溯当前会话的历史记录（同月回放会重建各天桶）；
+      // 昨天在上月时（月初 1 号）搬运旧状态的昨天桶，防止昨天行错误归零
+      return rebuildCarryingYesterday(s, month, today, sessionId);
     }
   } catch {
     // 状态文件损坏或不存在 → 重建
@@ -343,7 +361,8 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
       state.files[file] = offset + consumed;
     }
 
-    // 剪枝：dayTotals 只保留本月各天 + 日历昨天，防跨月残留膨胀（最多 ~32 个桶）
+    // 剪枝：dayTotals 只保留本月各天 + 日历昨天（最多 ~32 个桶）。正常流程不会残留，
+    // 此为防御脏状态/未来回归的保险
     const yesterdayKey = yesterdayOf(today);
     for (const key of Object.keys(state.dayTotals)) {
       if (key !== yesterdayKey && key.slice(0, 7) !== state.month) {

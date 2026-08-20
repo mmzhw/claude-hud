@@ -478,7 +478,37 @@ test('持久化前剪枝：非本月且非日历昨天的桶被移除', async ()
     // 本次扫描计入 8-19 桶；上月残留桶被剪掉
     const persisted = JSON.parse(await readFile(stateFile, 'utf8'));
     assert.ok(persisted.dayTotals['2026-08-19']);
+    assert.equal(persisted.dayTotals['2026-08-19'].costOff, 18);
     assert.ok(!('2026-07-30' in persisted.dayTotals));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('月初当天会话切换不回退昨天：9-01 换会话后昨天桶仍保留', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-31 以 sess-1 建状态
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-31T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-31T06:00:00.000Z' });
+    assert.ok(first);
+    assert.equal(first.today.costOff, 18);
+
+    // 9-01 首次触发：跨月搬运
+    await appendFile(file, assistantLine({ id: 'm2', ts: '2026-09-01T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-09-01T06:00:00.000Z' });
+    assert.ok(second);
+    assert.equal(second.yesterday.costOff, 18);
+
+    // 9-01 当天切换会话：同月会话重建，昨天在上月需再次搬运
+    const third = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-2', now: '2026-09-01T07:00:00.000Z' });
+    assert.ok(third);
+    assert.equal(third.yesterday.costOff, 18); // 8-31 桶不回退
+    assert.equal(third.today.costOff, 18);
+    assert.equal(third.session.costOff, 0);    // sess-2 无自己会话的记录
+    assert.equal(third.month.costOff, 18);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
