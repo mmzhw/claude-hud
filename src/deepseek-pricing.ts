@@ -121,3 +121,10 @@ export function costOfTokens(model: string, t: TokenSplit, peak: boolean): numbe
 export function displayNameOf(model: string): string {
   return PRICES_RMB_PER_MILLION[model]?.displayName ?? model;
 }
+
+/** 昨天的北京日期（YYYY-MM-DD → YYYY-MM-DD）；纯日期运算不涉及时区换算，非法日期返回空串 */
+export function yesterdayOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
+}

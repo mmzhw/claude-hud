@@ -7,6 +7,7 @@ import {
   isPeak,
   sessionOfFile,
   tokenSplit,
+  yesterdayOf,
 } from '../dist/deepseek-pricing.js';
 
 test('isPeak 北京高峰时段边界（9-12、14-18）', () => {
@@ -64,4 +65,11 @@ test('sessionOfFile 子代理归父会话，主会话用记录 id 或文件名',
   assert.equal(sessionOfFile(main, null), 'sess-1');
   // Unix 风格路径同样成立
   assert.equal(sessionOfFile('/home/u/.claude/projects/p/s2/subagents/a.jsonl', 'a'), 's2');
+});
+
+test('yesterdayOf 纯日期运算跨日/跨月/跨年，非法日期返回空串', () => {
+  assert.equal(yesterdayOf('2026-08-20'), '2026-08-19');
+  assert.equal(yesterdayOf('2026-09-01'), '2026-08-31');
+  assert.equal(yesterdayOf('2026-01-01'), '2025-12-31');
+  assert.equal(yesterdayOf('invalid'), '');
 });
