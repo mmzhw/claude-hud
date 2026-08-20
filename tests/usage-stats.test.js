@@ -424,3 +424,27 @@ test('月初跨月搬运昨天桶：9-01 的昨天行保留 8-31 累计', async 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('跨月与会话切换同时发生时昨天桶仍被搬运，会话累计归新会话', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-31 以 sess-1 建状态
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-31T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-31T06:00:00.000Z' });
+    assert.ok(first);
+    assert.equal(first.today.costOff, 18);
+
+    // 9-01 以 sess-2 触发：跨月 + 会话切换同时发生（走新月分支，freshState 用新 sessionId）
+    await appendFile(file, assistantLine({ id: 'm2', ts: '2026-09-01T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-2' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-2', now: '2026-09-01T06:00:00.000Z' });
+    assert.ok(second);
+    assert.equal(second.yesterday.costOff, 18); // 8-31 桶仍被搬运
+    assert.equal(second.today.costOff, 18);     // 9-01 新记录
+    assert.equal(second.session.costOff, 18);   // 会话累计归新会话 sess-2
+    assert.equal(second.month.costOff, 18);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
