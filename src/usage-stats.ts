@@ -12,7 +12,6 @@
 //   会把该消息费用从旧日期桶挪到新日期桶）。渲染取今天与昨天两个桶。
 // 本月累计：monthTotal 跨天持久累加，文件偏移跨天不清零（漏开机的天数由增量消费自然补齐）；
 //   新月或旧版本状态时偏移置空、全量重读本月记录一次（一次性回溯）。
-//   月初跨月时"日历昨天"的桶搬运进新状态——回放只重读本月记录，上月昨天必须靠搬运保留。
 // 计价生效日期：峰谷分时计价自 2026-08-17 起生效，之前的记录过滤不计入；
 //   状态里记录 pricingEra，生效日期常量变更时自动整体重建，避免旧数据残留。
 //
@@ -93,7 +92,7 @@ export interface UsageStatsResult {
   yesterday: CostBucket;
   month: CostBucket;
   session: CostBucket;
-  /** 今天按模型拆分（昨天行与今天行各用各的拆分） */
+  /** 今天行按模型拆分 */
   todayPerModel: Record<string, CostBucket>;
   /** 昨天按模型拆分（无数据时为空对象） */
   yesterdayPerModel: Record<string, CostBucket>;
@@ -283,6 +282,7 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
           applyToScope(state.sessionTotals, -1, old, old.cost, old.peak, old.model);
         }
         // 按天桶扣回：旧分片按它落桶的日期扣（跨天补到的更完整分片会把该消息费用挪到新日期桶）
+        // msgs 里的记录恒在本月内（上方按月份过滤），old.date 的桶必然存在，??= 仅为防御
         const oldDay = state.dayTotals[old.date] ?? (state.dayTotals[old.date] = zeroScope());
         applyToScope(oldDay, -1, old, old.cost, old.peak, old.model);
       }
