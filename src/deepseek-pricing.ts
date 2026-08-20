@@ -128,3 +128,10 @@ export function yesterdayOf(date: string): string {
   if (Number.isNaN(d.getTime())) return '';
   return new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
 }
+
+/** 计价表声明顺序索引（费用行按模型固定排序用）；未知模型排最后（索引 = 表长度） */
+export function pricingOrderOf(model: string): number {
+  const keys = Object.keys(PRICES_RMB_PER_MILLION);
+  const idx = keys.indexOf(model);
+  return idx === -1 ? keys.length : idx;
+}

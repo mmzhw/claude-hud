@@ -89,3 +89,25 @@ test('今天空闲时段费用显示谷段', () => {
 test('统计异常显示单行占位', () => {
   assert.equal(renderRmbCostLine(null), '⚡费用统计异常');
 });
+
+test('模型拆分按计价表顺序固定排序，与当天插入顺序无关', () => {
+  // 故意把 perModel 插入顺序倒过来（flash 在前），期望仍按计价表顺序 pro → flash 输出
+  assert.equal(
+    renderRmbCostLine(stats({
+      todayPerModel: { 'deepseek-v4-flash': bucket(0.5, 0), 'deepseek-v4-pro': bucket(3.0, 0) },
+      yesterdayPerModel: { 'deepseek-v4-flash': bucket(4.07, 0), 'deepseek-v4-pro': bucket(44.41, 0) },
+      yesterday: bucket(48.48, 0),
+    })),
+    '⚡昨¥48.48(pro¥44.41/flash¥4.07) 峰¥48.48\n⚡今¥3.50(pro¥3.00/flash¥0.50) 峰¥3.50 月¥145.26 会话¥7.52',
+  );
+});
+
+test('未知模型排最后，多个未知按显示名排序', () => {
+  assert.equal(
+    renderRmbCostLine(stats({
+      todayPerModel: { 'some-unknown': bucket(0.5, 0), 'deepseek-v4-pro': bucket(3.0, 0), 'another-unknown': bucket(0.1, 0) },
+      today: bucket(3.6, 0),
+    })),
+    '⚡昨¥1.23(pro¥1.00/flash¥0.23) 峰¥1.23\n⚡今¥3.60(pro¥3.00/another-unknown¥0.10/some-unknown¥0.50) 峰¥3.60 月¥145.26 会话¥7.52',
+  );
+});

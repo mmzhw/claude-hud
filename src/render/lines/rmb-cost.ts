@@ -1,4 +1,4 @@
-import { displayNameOf } from '../../deepseek-pricing.js';
+import { displayNameOf, pricingOrderOf } from '../../deepseek-pricing.js';
 import type { CostBucket, UsageStatsResult } from '../../usage-stats.js';
 
 /**
@@ -22,7 +22,12 @@ function renderDayCost(
 ): string {
   const cost = total.costPeak + total.costOff;
   let part = `${label}¥${cost.toFixed(2)}`;
-  const models = Object.keys(perModel);
+  // 按计价表声明顺序固定排序（昨天/今天两行顺序一致），未知模型排最后、显示名兜底
+  const models = Object.keys(perModel).sort((a, b) => {
+    const orderDiff = pricingOrderOf(a) - pricingOrderOf(b);
+    if (orderDiff !== 0) return orderDiff;
+    return displayNameOf(a).localeCompare(displayNameOf(b));
+  });
   if (models.length > 0) {
     const detail = models
       .map((model) => {
