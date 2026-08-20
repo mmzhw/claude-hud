@@ -171,7 +171,7 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
         // 否则月初 1 号的昨天行会错误归零。
         // 已知限制：跨月补到的更完整分片会与搬运来的昨天桶重复计费（msgs 跨月重置、去重不可达），
         // 金额为中间分片、次日剪枝自愈；不值得为此恢复跨月 msgs 去重。
-        // 新月时昨天必在上月，helper 的月份判断自然为真，行为与上述注释一致
+        // 今天为新月 1 号时昨天必在上月；多天未开机时昨天在本月、靠回放重建，helper 两种都覆盖
         return rebuildCarryingYesterday(s, month, today, sessionId);
       }
       if (sessionId == null || s.sessionId === undefined || s.sessionId === sessionId) {
@@ -193,6 +193,8 @@ function loadState(stateFile: string, today: string, month: string, sessionId: s
   } catch {
     // 状态文件损坏或不存在 → 重建
   }
+  // 旧版本状态/损坏/计价生效日期变更 → 整体重建。注意：升级当天恰逢月初 1 号时
+  // 无旧 dayTotals 可搬、昨天行单次归零（一次性，见设计文档风险节）
   return freshState(month, today, sessionId);
 }
 

@@ -126,7 +126,7 @@ test('会话切换只重置会话累计，今日/本月保留', async () => {
   }
 });
 
-test('跨天清零今日、保留本月', async () => {
+test('跨天今天桶从零开始、昨天桶留存、本月累计延续', async () => {
   const { dir, root, stateFile } = await makeFixture();
   try {
     await mkdir(path.join(root, 'proj-a'), { recursive: true });
