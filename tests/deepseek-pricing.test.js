@@ -71,5 +71,7 @@ test('yesterdayOf 纯日期运算跨日/跨月/跨年，非法日期返回空串
   assert.equal(yesterdayOf('2026-08-20'), '2026-08-19');
   assert.equal(yesterdayOf('2026-09-01'), '2026-08-31');
   assert.equal(yesterdayOf('2026-01-01'), '2025-12-31');
+  assert.equal(yesterdayOf('2026-03-01'), '2026-02-28');
+  assert.equal(yesterdayOf('2024-03-01'), '2024-02-29'); // 闰年
   assert.equal(yesterdayOf('invalid'), '');
 });

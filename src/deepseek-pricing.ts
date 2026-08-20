@@ -122,7 +122,7 @@ export function displayNameOf(model: string): string {
   return PRICES_RMB_PER_MILLION[model]?.displayName ?? model;
 }
 
-/** 昨天的北京日期（YYYY-MM-DD → YYYY-MM-DD）；纯日期运算不涉及时区换算，非法日期返回空串 */
+/** 昨天的北京日期（YYYY-MM-DD → YYYY-MM-DD）；纯日期运算不涉及时区换算；非法（不可解析）日期返回空串，日溢出日期按引擎规则进位（调用方只传入 beijingDate 生成的合法键） */
 export function yesterdayOf(date: string): string {
   const d = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return '';
