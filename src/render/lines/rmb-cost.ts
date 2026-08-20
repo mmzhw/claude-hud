@@ -6,7 +6,7 @@ import type { CostBucket, UsageStatsResult } from '../../usage-stats.js';
  * 在 expanded / compact 两种布局末尾追加）。
  *
  * 两行输出：昨天行在上、今天行在下；昨天无数据时显示昨¥0.00，两行结构恒定：
- *   昨¥1.23(pro¥1.00/flash¥0.23) 峰¥0.80 谷¥0.43
+ *   ⚡昨¥1.23(pro¥1.00/flash¥0.23) 峰¥0.80 谷¥0.43
  *   ⚡今¥3.50(pro¥3.00/flash¥0.50) 峰¥3.50 月¥145.26 会话¥7.52
  * - 括号内为按模型拆分（动态遍历实际出现的模型，用计价表 displayName 短写）
  * - 峰/谷仅非零时显示；会话段仅当前会话有 id 时显示，且只属于今天行
@@ -48,7 +48,7 @@ export function renderRmbCostLine(stats: UsageStatsResult | null): string {
   const monthCost = stats.month.costPeak + stats.month.costOff;
   const sessionCost = stats.session.costPeak + stats.session.costOff;
 
-  const yesterdayLine = renderDayCost('昨', stats.yesterday, stats.yesterdayPerModel);
+  const yesterdayLine = `⚡${renderDayCost('昨', stats.yesterday, stats.yesterdayPerModel)}`;
   const todayParts = [`⚡${renderDayCost('今', stats.today, stats.todayPerModel)}`, `月¥${monthCost.toFixed(2)}`];
   if (stats.sessionId) todayParts.push(`会话¥${sessionCost.toFixed(2)}`);
 
