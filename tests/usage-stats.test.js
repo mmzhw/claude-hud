@@ -342,8 +342,61 @@ test('跨天去重扣回按日期落桶：旧分片从昨天桶扣、完整分�
     const fullCost = (2_000 * 4.5 + 200 * 13.5) / 1e6;
     // 昨天的桶扣回旧分片归零；完整分片按新日期计入今天
     assert.equal(second.yesterday.costOff, 0);
+    // 昨天桶按模型拆分同步扣回（applyToScope 对称维护 perModel）
+    assert.equal(second.yesterdayPerModel['deepseek-v4-pro']?.costOff, 0);
     assert.ok(Math.abs(second.today.costOff - fullCost) < 1e-12);
     assert.ok(Math.abs(second.month.costOff - fullCost) < 1e-12);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('昨天无数据时返回零桶与空 perModel（配合渲染显示昨¥0.00）', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    // 首次扫描（昨天没有任何记录）
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.equal(result.today.costOff, 18);
+    assert.equal(result.yesterday.costPeak, 0);
+    assert.equal(result.yesterday.costOff, 0);
+    assert.deepEqual(Object.keys(result.yesterdayPerModel), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('v2 状态升级 v3 整体重建：伪造累计被覆盖、昨天按转录重算', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    // 伪造 v2 状态：stateV=2（有 totals 无 dayTotals），累计为假值
+    await mkdir(path.dirname(stateFile), { recursive: true });
+    await writeFile(stateFile, JSON.stringify({
+      stateV: 2,
+      month: '2026-08',
+      date: '2026-08-19',
+      pricingEra: '2026-08-17',
+      sessionId: 'sess-1',
+      totals: { miss: 999, hit: 0, out: 0, costPeak: 123, costOff: 456, perModel: {} },
+      files: {},
+      msgs: {},
+    }));
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    // 伪造值被整体重建覆盖，按转录重算为 18 元；昨天（8-18）无记录为零桶
+    assert.equal(result.today.costOff, 18);
+    assert.equal(result.month.costOff, 18);
+    assert.equal(result.yesterday.costOff, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
