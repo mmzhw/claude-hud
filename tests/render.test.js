@@ -4404,7 +4404,11 @@ test('showRmbCost 开启时 expanded/compact 布局末尾追加费用行', async
     // 记录落在本月时费用非零、落不到（更晚的月份）时费用为零——断言放宽为
     // 倒数第二行匹配 /^⚡昨¥/、末行匹配 /^⚡今¥/（两行费用行出现即可），不锁具体金额。
     const ctx = baseContext();
-    ctx.stdin = { ...ctx.stdin, session_id: 'sess-1' };
+    ctx.stdin = {
+      ...ctx.stdin,
+      session_id: 'sess-1',
+      model: { id: 'deepseek-v4-pro[1m]', display_name: 'deepseek-v4-pro' },
+    };
     ctx.config.display.showRmbCost = true;
 
     // expanded（两行费用：昨天行在上、今天行在下）
@@ -4424,6 +4428,60 @@ test('showRmbCost 开启时 expanded/compact 布局末尾追加费用行', async
     } else {
       process.env.CLAUDE_CONFIG_DIR = oldConfigDir;
     }
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+test('showModelCost selects GPT dollars and excludes DeepSeek history', async () => {
+  const tmp = await mkdtemp(path.join(tmpdir(), 'hud-render-model-cost-'));
+  const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    const projectsDir = path.join(tmp, '.claude', 'projects', 'proj-a');
+    await mkdir(projectsDir, { recursive: true });
+    const timestamp = new Date().toISOString();
+    const line = (id, model, usage) => JSON.stringify({
+      type: 'assistant',
+      message: { id, model, usage },
+      timestamp,
+      sessionId: 'sess-1',
+    }) + '\n';
+    await writeFile(
+      path.join(projectsDir, 'sess-1.jsonl'),
+      line('deepseek', 'deepseek-v4-pro', {
+        input_tokens: 1_000_000,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        output_tokens: 1_000_000,
+      }) + line('gpt', 'gpt-5.6-sol', {
+        input_tokens: 100_000,
+        cache_read_input_tokens: 20_000,
+        cache_creation_input_tokens: 10_000,
+        output_tokens: 5_000,
+      }),
+      'utf8',
+    );
+    process.env.CLAUDE_CONFIG_DIR = path.join(tmp, '.claude');
+
+    const ctx = baseContext();
+    ctx.stdin = {
+      ...ctx.stdin,
+      session_id: 'sess-1',
+      model: { id: 'gpt-5.6-sol[1m]', display_name: 'GPT-5.6 Sol (1M context)' },
+    };
+    ctx.config.display.showModelCost = true;
+    ctx.config.display.showRmbCost = false;
+    ctx.config.lineLayout = 'expanded';
+
+    const output = withTerminal(200, () => captureRenderLines(ctx));
+    const yesterday = output[output.length - 2];
+    const today = output[output.length - 1];
+    assert.match(yesterday, /^⚡昨\$/);
+    assert.match(today, /^⚡今\$/);
+    assert.match(today, /sol\$/);
+    assert.doesNotMatch(`${yesterday}\n${today}`, /pro|flash|¥|峰|谷/);
+  } finally {
+    if (oldConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = oldConfigDir;
     await rm(tmp, { recursive: true, force: true });
   }
 });
