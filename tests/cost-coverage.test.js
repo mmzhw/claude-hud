@@ -320,6 +320,15 @@ test('showRmbCost 开启时抑制美元 cost 段', () => {
   assert.equal(renderCostEstimate(ctx), null);
 });
 
+test('showModelCost suppresses the old cost segment', () => {
+  const ctx = {
+    config: { display: { showCost: true, showModelCost: true, showRmbCost: false } },
+    stdin: { model: { display_name: 'gpt-5.6-sol' }, cost: { total_cost_usd: 0.5 } },
+    transcript: { sessionTokens: undefined },
+  };
+  assert.equal(renderCostEstimate(ctx), null);
+});
+
 test('showRmbCost 关闭时美元 cost 段正常渲染', () => {
   const ctx = {
     config: { display: { showCost: true, showRmbCost: false } },

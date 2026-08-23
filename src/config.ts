@@ -233,9 +233,8 @@ export interface HudConfig {
     // real 5-minute or 1-hour cache write to follow.
     promptCacheTtlSeconds: number;
     showSessionTokens: boolean;
-    // DeepSeek 人民币费用行（opt-in，个人 fork 扩展）：会话/今日/本月花费，
-    // 峰谷分时计价 + 按模型拆分。开启时自动抑制 showCost 美元段。
-    // 价格表见 src/deepseek-pricing.ts；换模型时在表中加条目即可。
+    // Currency-aware per-model cost line. showRmbCost remains a legacy alias.
+    showModelCost: boolean;
     showRmbCost: boolean;
     showOutputStyle: boolean;
     showSessionStartDate: boolean;
@@ -351,6 +350,7 @@ export const DEFAULT_CONFIG: HudConfig = {
     showPromptCache: false,
     promptCacheTtlSeconds: 300,
     showSessionTokens: false,
+    showModelCost: false,
     showRmbCost: false,
     showOutputStyle: false,
     showSessionStartDate: false,
@@ -415,6 +415,13 @@ export function getConfigPath(): string {
 export function getConfigOverridePath(): string {
   const homeDir = os.homedir();
   return path.join(getClaudeConfigDir(homeDir), 'claude-hud.json');
+}
+
+export function isModelCostEnabled(display?: {
+  showModelCost?: boolean;
+  showRmbCost?: boolean;
+} | null): boolean {
+  return display?.showModelCost === true || display?.showRmbCost === true;
 }
 
 function validatePathLevels(value: unknown): value is PathLevels {
@@ -886,6 +893,9 @@ export function mergeConfig(userConfig: Partial<HudConfig>): HudConfig {
     showSessionTokens: typeof migrated.display?.showSessionTokens === 'boolean'
       ? migrated.display.showSessionTokens
       : DEFAULT_CONFIG.display.showSessionTokens,
+    showModelCost: typeof migrated.display?.showModelCost === 'boolean'
+      ? migrated.display.showModelCost
+      : DEFAULT_CONFIG.display.showModelCost,
     showRmbCost: typeof migrated.display?.showRmbCost === 'boolean'
       ? migrated.display.showRmbCost
       : DEFAULT_CONFIG.display.showRmbCost,

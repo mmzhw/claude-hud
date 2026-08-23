@@ -1314,3 +1314,15 @@ test('mergeConfig falls back when showRmbCost is not boolean', () => {
   const config = mergeConfig({ display: { showRmbCost: 'yes' } });
   assert.equal(config.display.showRmbCost, false);
 });
+
+test('DEFAULT_CONFIG.display.showModelCost defaults to false', () => {
+  assert.equal(DEFAULT_CONFIG.display.showModelCost, false);
+});
+
+test('mergeConfig carries display.showModelCost true', () => {
+  assert.equal(mergeConfig({ display: { showModelCost: true } }).display.showModelCost, true);
+});
+
+test('mergeConfig rejects non-boolean showModelCost', () => {
+  assert.equal(mergeConfig({ display: { showModelCost: 'yes' } }).display.showModelCost, false);
+});

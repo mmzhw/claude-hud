@@ -1,4 +1,5 @@
 import type { RenderContext } from '../../types.js';
+import { isModelCostEnabled } from '../../config.js';
 import { resolveSessionCost, formatUsd } from '../../cost.js';
 import { t } from '../../i18n/index.js';
 import { label } from '../colors.js';
@@ -8,9 +9,8 @@ export function renderCostEstimate(ctx: RenderContext): string | null {
     return null;
   }
 
-  // 开启人民币费用行（display.showRmbCost）时抑制美元 cost 段，
-  // 避免同屏出现两个矛盾的"费用"
-  if (ctx.config?.display?.showRmbCost === true) {
+  // The current-model cost line supersedes this session-wide cost segment.
+  if (isModelCostEnabled(ctx.config?.display)) {
     return null;
   }
 
