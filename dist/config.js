@@ -103,6 +103,7 @@ export const DEFAULT_CONFIG = {
         showPromptCache: false,
         promptCacheTtlSeconds: 300,
         showSessionTokens: false,
+        showModelCost: false,
         showRmbCost: false,
         showOutputStyle: false,
         showSessionStartDate: false,
@@ -165,6 +166,9 @@ export function getConfigPath() {
 export function getConfigOverridePath() {
     const homeDir = os.homedir();
     return path.join(getClaudeConfigDir(homeDir), 'claude-hud.json');
+}
+export function isModelCostEnabled(display) {
+    return display?.showModelCost === true || display?.showRmbCost === true;
 }
 function validatePathLevels(value) {
     return value === 1 || value === 2 || value === 3 || value === 'full';
@@ -565,6 +569,9 @@ export function mergeConfig(userConfig) {
         showSessionTokens: typeof migrated.display?.showSessionTokens === 'boolean'
             ? migrated.display.showSessionTokens
             : DEFAULT_CONFIG.display.showSessionTokens,
+        showModelCost: typeof migrated.display?.showModelCost === 'boolean'
+            ? migrated.display.showModelCost
+            : DEFAULT_CONFIG.display.showModelCost,
         showRmbCost: typeof migrated.display?.showRmbCost === 'boolean'
             ? migrated.display.showRmbCost
             : DEFAULT_CONFIG.display.showRmbCost,

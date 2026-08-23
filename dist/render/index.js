@@ -1,12 +1,13 @@
-import { DEFAULT_ELEMENT_ORDER, DEFAULT_MERGE_GROUPS } from '../config.js';
+import { DEFAULT_ELEMENT_ORDER, DEFAULT_MERGE_GROUPS, isModelCostEnabled } from '../config.js';
 import { renderSessionLine } from './session-line.js';
 import { renderToolsLine } from './tools-line.js';
 import { renderSkillsLine, renderMcpLine } from './skills-mcp-line.js';
 import { renderAgentsLine } from './agents-line.js';
 import { renderTodosLine } from './todos-line.js';
 import { renderIdentityLine, renderProjectLine, renderAddedDirsLine, renderGitFilesLine, renderEnvironmentLine, renderPromptCacheLine, renderUsageLine, renderMemoryLine, renderSessionTokensLine, renderCompactionsLine, renderSessionTimeLine, } from './lines/index.js';
-import { updateUsageStats } from '../usage-stats.js';
-import { renderRmbCostLine } from './lines/rmb-cost.js';
+import { currentModelLabel, resolveCurrentModelPricing } from '../model-pricing.js';
+import { selectModelUsage, updateUsageStats } from '../usage-stats.js';
+import { renderModelCostLine } from './lines/model-cost.js';
 import { dim, RESET } from './colors.js';
 import { getTerminalWidth, UNKNOWN_TERMINAL_WIDTH } from '../utils/terminal.js';
 import { codePointCellWidth, isCjkAmbiguousWide } from './width.js';
@@ -526,10 +527,20 @@ export function render(ctx) {
         }
         lines.push(...activityLines);
     }
-    // DeepSeek 人民币费用行（opt-in）：增量扫描转录后追加到输出末尾
-    if (ctx.config?.display?.showRmbCost === true) {
-        const stats = updateUsageStats({ sessionId: ctx.stdin.session_id });
-        lines.push(renderRmbCostLine(stats));
+    if (isModelCostEnabled(ctx.config?.display)) {
+        const modelName = currentModelLabel(ctx.stdin.model);
+        if (modelName) {
+            const pricing = resolveCurrentModelPricing(ctx.stdin.model);
+            if (!pricing) {
+                lines.push(renderModelCostLine({ kind: 'unknown', modelName }));
+            }
+            else {
+                const stats = updateUsageStats({ sessionId: ctx.stdin.session_id });
+                lines.push(renderModelCostLine(stats
+                    ? { kind: 'ready', stats: selectModelUsage(stats, pricing) }
+                    : { kind: 'error' }));
+            }
+        }
     }
     const physicalLines = lines.flatMap(line => line.split('\n'));
     // Only wrap when terminal width is real (known). When width is the

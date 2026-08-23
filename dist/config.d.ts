@@ -133,6 +133,7 @@ export interface HudConfig {
         showPromptCache: boolean;
         promptCacheTtlSeconds: number;
         showSessionTokens: boolean;
+        showModelCost: boolean;
         showRmbCost: boolean;
         showOutputStyle: boolean;
         showSessionStartDate: boolean;
@@ -177,6 +178,10 @@ export declare function getConfigPath(): string;
  * can override any part of the shared config.
  */
 export declare function getConfigOverridePath(): string;
+export declare function isModelCostEnabled(display?: {
+    showModelCost?: boolean;
+    showRmbCost?: boolean;
+} | null): boolean;
 export declare function mergeConfig(userConfig: Partial<HudConfig>): HudConfig;
 export declare function loadConfig(): Promise<HudConfig>;
 //# sourceMappingURL=config.d.ts.map

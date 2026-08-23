@@ -1,8 +1,14 @@
-/** 单层累计（今日/本月/会话）：token 分类 + 峰谷费用 */
+import { type ModelPricing, type TokenSplit } from './model-pricing.js';
+/** Legacy same-currency aggregate retained for callers/tests; null means mixed currencies. */
 export interface CostBucket {
     miss: number;
     hit: number;
     out: number;
+    costPeak: number;
+    costOff: number;
+}
+export interface ModelUsageBucket extends TokenSplit {
+    amount: number;
     costPeak: number;
     costOff: number;
 }
@@ -17,19 +23,22 @@ export interface UsageStatsOptions {
     now?: string;
 }
 export interface UsageStatsResult {
-    today: CostBucket;
-    /** 昨天累计（无数据时为零桶，配合渲染"昨¥0.00"始终显示） */
-    yesterday: CostBucket;
-    month: CostBucket;
-    session: CostBucket;
-    /** 今天行按模型拆分 */
-    todayPerModel: Record<string, CostBucket>;
-    /** 昨天按模型拆分（无数据时为空对象） */
-    yesterdayPerModel: Record<string, CostBucket>;
-    /** 月/会话按模型拆分：当前渲染未使用，保留供未来扩展（如月/会话按模型拆分） */
-    monthPerModel: Record<string, CostBucket>;
-    /** 会话层按模型拆分：当前渲染未使用，保留供未来扩展 */
-    sessionPerModel: Record<string, CostBucket>;
+    today: CostBucket | null;
+    yesterday: CostBucket | null;
+    month: CostBucket | null;
+    session: CostBucket | null;
+    todayPerModel: Record<string, ModelUsageBucket>;
+    yesterdayPerModel: Record<string, ModelUsageBucket>;
+    monthPerModel: Record<string, ModelUsageBucket>;
+    sessionPerModel: Record<string, ModelUsageBucket>;
+    sessionId: string | null;
+}
+export interface SelectedModelUsageStats {
+    model: ModelPricing;
+    today: ModelUsageBucket;
+    yesterday: ModelUsageBucket;
+    month: ModelUsageBucket;
+    session: ModelUsageBucket;
     sessionId: string | null;
 }
 /**
@@ -37,4 +46,5 @@ export interface UsageStatsResult {
  * 任何异常返回 null（调用方显示占位），不影响 HUD 其他行。
  */
 export declare function updateUsageStats(options?: UsageStatsOptions): UsageStatsResult | null;
+export declare function selectModelUsage(stats: UsageStatsResult, model: ModelPricing): SelectedModelUsageStats;
 //# sourceMappingURL=usage-stats.d.ts.map
