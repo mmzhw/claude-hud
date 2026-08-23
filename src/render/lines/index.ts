@@ -9,3 +9,4 @@ export { renderSessionTokensLine } from './session-tokens.js';
 export { renderCompactionsLine } from './compactions.js';
 export { renderSessionTimeLine } from './session-time.js';
 export { renderAdvisorLine, prettifyAdvisorId } from './advisor.js';
+export { renderModelCostLine, type ModelCostRenderInput } from './model-cost.js';
