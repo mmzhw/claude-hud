@@ -38,8 +38,7 @@ Thumbs.db
 # Environment/secrets (safety)
 .env
 .env.*
-.claude/settings.json
-.claude/*.local.json
+.claude/
 *.pem
 *.key
 secrets/
