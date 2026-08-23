@@ -478,7 +478,8 @@ test('持久化前剪枝：非本月且非日历昨天的桶被移除', async ()
     // 本次扫描计入 8-19 桶；上月残留桶被剪掉
     const persisted = JSON.parse(await readFile(stateFile, 'utf8'));
     assert.ok(persisted.dayTotals['2026-08-19']);
-    assert.equal(persisted.dayTotals['2026-08-19'].costOff, 18);
+    assert.equal(persisted.dayTotals['2026-08-19'].perModel['deepseek-v4-pro'].costOff, 18);
+    assert.equal('costOff' in persisted.dayTotals['2026-08-19'], false);
     assert.ok(!('2026-07-30' in persisted.dayTotals));
   } finally {
     await rm(dir, { recursive: true, force: true });

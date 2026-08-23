@@ -1,5 +1,5 @@
 import { displayNameOf, pricingOrderOf } from '../../deepseek-pricing.js';
-import type { CostBucket, UsageStatsResult } from '../../usage-stats.js';
+import type { CostBucket, ModelUsageBucket, UsageStatsResult } from '../../usage-stats.js';
 
 /**
  * 渲染 DeepSeek 人民币费用行（display.showRmbCost 开启时由 render/index.ts
@@ -18,7 +18,7 @@ import type { CostBucket, UsageStatsResult } from '../../usage-stats.js';
 function renderDayCost(
   label: '今' | '昨',
   total: CostBucket,
-  perModel: Record<string, CostBucket>,
+  perModel: Record<string, ModelUsageBucket>,
 ): string {
   const cost = total.costPeak + total.costOff;
   let part = `${label}¥${cost.toFixed(2)}`;
@@ -46,7 +46,7 @@ function renderDayCost(
 
 /** 渲染昨天 + 今天两行费用（以 \n 连接；render/index.ts 会按物理行拆分输出） */
 export function renderRmbCostLine(stats: UsageStatsResult | null): string {
-  if (!stats) {
+  if (!stats || !stats.today || !stats.yesterday || !stats.month || !stats.session) {
     return '⚡费用统计异常';
   }
 
