@@ -28,22 +28,11 @@ See `TESTING.md` for the full testing strategy, fixtures, and snapshot updates.
 - Prefer tests for behavior changes.
 - Avoid introducing dependencies unless necessary.
 
-## Build Process
-
-**Important**: PRs should only modify files in `src/` — do not include changes to `dist/`.
-
-CI automatically builds and commits `dist/` after your PR is merged. This keeps PRs focused on source code and makes review easier.
-
-```
-Your PR: src/ changes only → Merge → CI builds dist/ → Committed automatically
-```
-
 ## Pull Requests
 
 - Describe the problem and the fix.
 - Include tests or explain why they are not needed.
 - Link issues when relevant.
-- Only modify `src/` files — CI handles `dist/` automatically.
 
 ## Releasing New Versions
 
@@ -56,7 +45,7 @@ When shipping a new version:
 
 2. **Update CHANGELOG.md** with changes since last release
 
-3. **Commit and merge** — CI builds dist/ automatically
+3. **Commit**
 
 ### How Users Get Updates
 
