@@ -16,6 +16,16 @@ function hasUsage(bucket: ModelUsageBucket): boolean {
   return bucket.input + bucket.cacheRead + bucket.cacheWrite + bucket.output > 0;
 }
 
+/** 会话段：跨天时标注今天之前的部分，避免 会话>今 看起来像记账错误 */
+function renderSessionSegment(stats: SelectedModelUsageStats): string {
+  let text = `会话${formatAmount(stats.session.amount, stats)}`;
+  if (hasUsage(stats.sessionPrior)) {
+    const allYesterday = Math.abs(stats.sessionPrior.amount - stats.sessionYesterday.amount) < 1e-9;
+    text += `(${allYesterday ? '含昨' : '含更早'}${formatAmount(stats.sessionPrior.amount, stats)})`;
+  }
+  return text;
+}
+
 function renderDay(label: '今' | '昨', bucket: ModelUsageBucket, stats: SelectedModelUsageStats): string {
   const amount = formatAmount(bucket.amount, stats);
   let total = `${label}${amount}`;
@@ -41,7 +51,7 @@ export function renderModelCostLine(input: ModelCostRenderInput): string {
     `月${formatAmount(stats.month.amount, stats)}`,
   ];
   if (stats.sessionId) {
-    todayParts.push(`会话${formatAmount(stats.session.amount, stats)}`);
+    todayParts.push(renderSessionSegment(stats));
   }
   return `${yesterdayLine}\n${todayParts.join(' ')}`;
 }

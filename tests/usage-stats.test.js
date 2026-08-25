@@ -514,3 +514,44 @@ test('月初当天会话切换不回退昨天：9-01 换会话后昨天桶仍保
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('会话跨天时按日期拆出今天之前的 prior/yesterday 桶（渲染标注用）', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    const file = path.join(root, 'proj-a', 'sess-1.jsonl');
+    // 8-19 空闲：pro miss 1M + out 1M = 18 元（昨天）
+    await writeFile(file, assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const first = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-19T06:00:00.000Z' });
+    assert.ok(first);
+
+    // 8-20 同会话新记录：pro miss 1M + out 1M = 18 元（今天）
+    await appendFile(file, assistantLine({ id: 'm2', ts: '2026-08-20T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }));
+    const second = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: '2026-08-20T06:00:00.000Z' });
+    assert.ok(second);
+    assert.ok(second.sessionPriorPerModel);
+    assert.equal(second.sessionPriorPerModel['deepseek-v4-pro'].costOff, 18);   // 只有昨天的 m1
+    assert.equal(second.sessionYesterdayPerModel['deepseek-v4-pro'].costOff, 18); // 昨天 = m1
+    assert.equal(second.session.costOff, 36);                                   // 会话全量不变
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('未跨天会话的 prior/yesterday 桶为空', async () => {
+  const { dir, root, stateFile } = await makeFixture();
+  try {
+    await mkdir(path.join(root, 'proj-a'), { recursive: true });
+    await writeFile(
+      path.join(root, 'proj-a', 'sess-1.jsonl'),
+      assistantLine({ id: 'm1', ts: '2026-08-19T05:00:00.000Z', miss: 1_000_000, out: 1_000_000, sessionId: 'sess-1' }),
+    );
+    const result = updateUsageStats({ projectsRoot: root, stateFile, sessionId: 'sess-1', now: NOW });
+    assert.ok(result);
+    assert.ok(result.sessionPriorPerModel);
+    assert.deepEqual(Object.keys(result.sessionPriorPerModel), []);
+    assert.deepEqual(Object.keys(result.sessionYesterdayPerModel), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

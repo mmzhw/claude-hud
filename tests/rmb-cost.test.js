@@ -23,6 +23,8 @@ function selected(modelName, overrides = {}) {
     today: bucket(0.37),
     month: bucket(1.84),
     session: bucket(0.92),
+    sessionPrior: bucket(0, 0, 0, 0),
+    sessionYesterday: bucket(0, 0, 0, 0),
     sessionId: 'sess-1',
     ...overrides,
   };
@@ -74,6 +76,41 @@ test('missing session id omits only the session segment', () => {
 test('unknown and error states never show stale model costs', () => {
   assert.equal(renderModelCostLine({ kind: 'unknown', modelName: 'gpt-x' }), '⚡gpt-x 暂无计价');
   assert.equal(renderModelCostLine({ kind: 'error' }), '⚡费用统计异常');
+});
+
+test('跨天会话在会话段标注含昨金额', () => {
+  const output = renderModelCostLine({
+    kind: 'ready',
+    stats: selected('deepseek-v4-pro', {
+      session: bucket(38.79),
+      sessionPrior: bucket(34.13, 0, 0, 100),
+      sessionYesterday: bucket(34.13, 0, 0, 100),
+    }),
+  });
+  assert.equal(
+    output,
+    '⚡昨¥0.12(pro¥0.12)\n⚡今¥0.37(pro¥0.37) 月¥1.84 会话¥38.79(含昨¥34.13)',
+  );
+});
+
+test('跨多天会话标注为含更早', () => {
+  const output = renderModelCostLine({
+    kind: 'ready',
+    stats: selected('deepseek-v4-pro', {
+      session: bucket(38.79),
+      sessionPrior: bucket(34.68, 0, 0, 100),
+      sessionYesterday: bucket(34.13, 0, 0, 100),
+    }),
+  });
+  assert.equal(
+    output,
+    '⚡昨¥0.12(pro¥0.12)\n⚡今¥0.37(pro¥0.37) 月¥1.84 会话¥38.79(含更早¥34.68)',
+  );
+});
+
+test('未跨天会话不显示标注', () => {
+  const output = renderModelCostLine({ kind: 'ready', stats: selected('deepseek-v4-pro') });
+  assert.doesNotMatch(output, /含/);
 });
 
 test('legacy renderer export is the same-signature alias', () => {

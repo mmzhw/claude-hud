@@ -82,6 +82,10 @@ export interface UsageStatsResult {
   yesterdayPerModel: Record<string, ModelUsageBucket>;
   monthPerModel: Record<string, ModelUsageBucket>;
   sessionPerModel: Record<string, ModelUsageBucket>;
+  /** 当前会话在"今天之前"的累计（按模型拆分）——会话跨天时供渲染层标注 */
+  sessionPriorPerModel: Record<string, ModelUsageBucket>;
+  /** 当前会话在"日历昨天"的累计（按模型拆分）——与 prior 对比判断是否只跨一天 */
+  sessionYesterdayPerModel: Record<string, ModelUsageBucket>;
   sessionId: string | null;
 }
 
@@ -91,6 +95,8 @@ export interface SelectedModelUsageStats {
   yesterday: ModelUsageBucket;
   month: ModelUsageBucket;
   session: ModelUsageBucket;
+  sessionPrior: ModelUsageBucket;
+  sessionYesterday: ModelUsageBucket;
   sessionId: string | null;
 }
 
@@ -382,6 +388,34 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
 
     persistState(stateFile, state);
 
+    // 会话跨天拆分：渲染层在会话跨天时标注"含昨/含更早"金额。
+    // 由 msgs 现算、不入状态文件——msgs 已按 message.id 去重且带 session/date 归属，
+    // 天然覆盖增量扫描与整体重建两条路径，无需状态版本迁移
+    const sessionPriorPerModel: Record<string, ModelUsageBucket> = {};
+    const sessionYesterdayPerModel: Record<string, ModelUsageBucket> = {};
+    if (state.sessionId) {
+      for (const msg of Object.values(state.msgs)) {
+        if (msg.session !== state.sessionId || msg.date >= today) continue;
+        const prior = sessionPriorPerModel[msg.model] ?? (sessionPriorPerModel[msg.model] = zeroModelBucket());
+        prior.input += msg.input;
+        prior.cacheRead += msg.cacheRead;
+        prior.cacheWrite += msg.cacheWrite;
+        prior.output += msg.output;
+        prior.amount += msg.amount;
+        prior.costPeak += msg.costPeak;
+        prior.costOff += msg.costOff;
+        if (msg.date !== yesterdayKey) continue;
+        const yd = sessionYesterdayPerModel[msg.model] ?? (sessionYesterdayPerModel[msg.model] = zeroModelBucket());
+        yd.input += msg.input;
+        yd.cacheRead += msg.cacheRead;
+        yd.cacheWrite += msg.cacheWrite;
+        yd.output += msg.output;
+        yd.amount += msg.amount;
+        yd.costPeak += msg.costPeak;
+        yd.costOff += msg.costOff;
+      }
+    }
+
     const todayBucket = state.dayTotals[today] ?? zeroScope();
     const yesterdayBucket = state.dayTotals[yesterdayKey] ?? zeroScope();
     return {
@@ -393,6 +427,8 @@ export function updateUsageStats(options: UsageStatsOptions = {}): UsageStatsRes
       yesterdayPerModel: yesterdayBucket.perModel,
       monthPerModel: state.monthTotal.perModel,
       sessionPerModel: state.sessionTotals.perModel,
+      sessionPriorPerModel,
+      sessionYesterdayPerModel,
       sessionId: state.sessionId,
     };
   } catch {
@@ -410,6 +446,8 @@ export function selectModelUsage(stats: UsageStatsResult, model: ModelPricing): 
     yesterday: pick(stats.yesterdayPerModel),
     month: pick(stats.monthPerModel),
     session: pick(stats.sessionPerModel),
+    sessionPrior: pick(stats.sessionPriorPerModel),
+    sessionYesterday: pick(stats.sessionYesterdayPerModel),
     sessionId: stats.sessionId,
   };
 }
